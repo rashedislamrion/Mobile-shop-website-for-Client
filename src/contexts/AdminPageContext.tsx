@@ -51,10 +51,23 @@ export function AdminPageProvider({ children }: { children: ReactNode }) {
   );
 }
 
+const defaultPageContext: PageContextType = {
+  title: "Dashboard",
+  setTitle: () => {},
+  badge: "Website",
+  setBadge: () => {},
+  dateFilter: "This Month",
+  setDateFilter: () => {},
+  isSidebarCollapsed: false,
+  setIsSidebarCollapsed: () => {},
+  isMobileSidebarOpen: false,
+  setIsMobileSidebarOpen: () => {},
+  breadcrumbs: [],
+  setBreadcrumbs: () => {},
+  setPageInfo: () => {},
+};
+
 export function useAdminPage() {
   const context = useContext(AdminPageContext);
-  if (context === undefined) {
-    throw new Error("useAdminPage must be used within an AdminPageProvider");
-  }
-  return context;
+  return context || defaultPageContext;
 }

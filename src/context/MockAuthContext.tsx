@@ -46,10 +46,14 @@ export function MockAuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
+const defaultAuthContext: MockAuthContextType = {
+  isLoggedIn: false,
+  customerName: "",
+  login: () => {},
+  logout: () => {},
+};
+
 export function useMockAuth() {
   const context = useContext(MockAuthContext);
-  if (!context) {
-    throw new Error("useMockAuth must be used within a MockAuthProvider");
-  }
-  return context;
+  return context || defaultAuthContext;
 }

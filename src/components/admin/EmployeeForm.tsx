@@ -383,8 +383,8 @@ export function EmployeeForm({ initialData, isEdit }: EmployeeFormProps) {
             />
 
             <div>
-              <FormLabel>Allowances (Optional)</FormLabel>
-              <div className="space-y-3 mt-2">
+              <label className="text-sm font-medium leading-none text-slate-700 block mb-2">Allowances (Optional)</label>
+              <div className="space-y-3">
                 {allowanceFields.map((field, index) => (
                   <div key={field.id} className="flex gap-3">
                     <FormField

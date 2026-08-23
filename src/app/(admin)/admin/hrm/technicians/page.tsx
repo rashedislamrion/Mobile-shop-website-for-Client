@@ -7,7 +7,7 @@ import { DataTable, StatusBadge, ActionDropdown } from "@/components/admin/DataT
 import { FilterConfig, StatusVariant, TableAction } from "@/types/table";
 import { mockTechnicians, Technician } from "@/lib/mock-data/hrm/technicians";
 import { ColumnDef } from "@tanstack/react-table";
-import { Edit, Eye, Tool, Star, CheckCircle } from "lucide-react";
+import { Edit, Eye, Wrench, Star, CheckCircle } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -93,7 +93,7 @@ export default function TechniciansPage() {
     { label: "View Profile", icon: <Eye className="w-4 h-4" />, onClick: () => toast.info("Viewing profile") },
     { 
       label: "Assign New Job", 
-      icon: <Tool className="w-4 h-4" />, 
+      icon: <Wrench className="w-4 h-4" />, 
       onClick: () => {
         setSelectedTech(row);
         setAssignJobOpen(true);
@@ -201,7 +201,7 @@ export default function TechniciansPage() {
           </DialogHeader>
           <div className="pt-4 space-y-4">
             <div className="bg-blue-50 text-blue-800 p-3 rounded-lg flex gap-3 text-sm border border-blue-100">
-              <Tool className="w-5 h-5 shrink-0 text-blue-600" />
+              <Wrench className="w-5 h-5 shrink-0 text-blue-600" />
               <p>Assigning job to <strong>{selectedTech?.name}</strong>. They currently have <strong>{selectedTech?.activeJobs}</strong> active jobs.</p>
             </div>
             

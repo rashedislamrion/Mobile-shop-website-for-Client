@@ -7,7 +7,7 @@ import { useForm, useFieldArray } from "react-hook-form";
 import * as z from "zod";
 import { toast } from "sonner";
 import { 
-  Check, User, Upload, RefreshCw, Key
+  Check, User, Upload, RefreshCw, Key, Trash2
 } from "lucide-react";
 import { Employee } from "@/lib/mock-data/hrm/employees";
 import { mockDepartments } from "@/lib/mock-data/hrm/departments";

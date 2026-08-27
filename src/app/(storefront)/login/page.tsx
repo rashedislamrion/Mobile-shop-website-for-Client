@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useMockAuth } from "@/context/MockAuthContext";
+import { useAuth } from "@/context/AuthContext";
 
 const loginSchema = z.object({
   emailOrPhone: z.string().min(3, "Email or phone is required"),
@@ -23,7 +23,7 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
-  const { login } = useMockAuth();
+  const { login } = useAuth();
 
   const {
     register,
@@ -34,13 +34,17 @@ export default function LoginPage() {
   });
 
   const onSubmit = async (data: LoginFormValues) => {
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    
-    // Mock login success
-    login(data.emailOrPhone.split("@")[0] || "User");
-    toast.success("Successfully logged in!");
-    router.push("/account");
+    try {
+      await login(data, false);
+      toast.success("Successfully logged in!");
+      router.push("/account");
+    } catch (err: any) {
+      toast.error(err.message || "Invalid credentials");
+    }
+  };
+
+  const onInvalid = (errors: any) => {
+    console.error("Form validation errors:", errors);
   };
 
   return (
@@ -51,7 +55,7 @@ export default function LoginPage() {
           <p className="text-slate-500">Welcome back! Please login to your account.</p>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        <form onSubmit={handleSubmit(onSubmit, onInvalid)} className="space-y-6">
           <div className="space-y-2">
             <Label htmlFor="emailOrPhone">Email or Phone</Label>
             <Input 

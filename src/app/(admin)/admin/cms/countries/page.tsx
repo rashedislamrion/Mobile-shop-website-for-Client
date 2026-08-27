@@ -1,162 +1,242 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { useAdminPage } from '@/contexts/AdminPageContext';
-import { DataTable, StatusBadge } from '@/components/admin/DataTable';
-import { FilterBar } from '@/components/admin/FilterBar';
-import { Plus, Edit, Trash2, X } from 'lucide-react';
-import { mockCountries, Country } from '@/lib/mock-data/cms/countries';
+import React, { useState, useEffect } from "react";
+import { useAdminPage } from "@/contexts/AdminPageContext";
+import { DataTable, StatusBadge } from "@/components/admin/DataTable";
+import { Plus, Trash2, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "sonner";
+import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api-client";
+
+export interface CountryRecord {
+  id: string;
+  name: string;
+  code: string;
+  phoneCode?: string | null;
+  currency?: string | null;
+  status: "ACTIVE" | "INACTIVE";
+}
 
 export default function CountriesManagementPage() {
-  const { setPageInfo } = useAdminPage();
-  const [searchQuery, setSearchQuery] = useState('');
+  const { setTitle, setBadge } = useAdminPage();
+  const [countries, setCountries] = useState<CountryRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  React.useEffect(() => {
-    setPageInfo({
-      title: 'Country List',
-      breadcrumbs: [
-        { label: 'CMS', href: '/admin/cms/pages' },
-        { label: 'Countries', href: '/admin/cms/countries' }
-      ]
-    });
-  }, [setPageInfo]);
+  const [newCountry, setNewCountry] = useState({
+    name: "",
+    code: "",
+    phoneCode: "+880",
+    currency: "BDT",
+    status: "ACTIVE" as "ACTIVE" | "INACTIVE",
+  });
 
-  const filteredCountries = mockCountries.filter(country => 
-    country.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    country.code.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const fetchCountries = async () => {
+    setIsLoading(true);
+    try {
+      const data = await apiGet<CountryRecord[]>("/countries");
+      setCountries(data || []);
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to load countries");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setTitle("Country List");
+    setBadge("CMS");
+    fetchCountries();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSaveCountry = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCountry.name.trim() || !newCountry.code.trim()) {
+      toast.error("Country name and ISO code are required.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await apiPost("/countries", {
+        name: newCountry.name.trim(),
+        code: newCountry.code.trim().toUpperCase(),
+        phoneCode: newCountry.phoneCode.trim() || undefined,
+        currency: newCountry.currency.trim() || undefined,
+        status: newCountry.status,
+      });
+      toast.success("Country added successfully!");
+      setIsDialogOpen(false);
+      setNewCountry({
+        name: "",
+        code: "",
+        phoneCode: "+880",
+        currency: "BDT",
+        status: "ACTIVE",
+      });
+      fetchCountries();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to add country");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Delete this country?")) return;
+    try {
+      await apiDelete(`/countries/${id}`);
+      toast.success("Country deleted");
+      fetchCountries();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete country");
+    }
+  };
+
+  const handleToggleStatus = async (c: CountryRecord) => {
+    const nextStatus = c.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+    try {
+      await apiPatch(`/countries/${c.id}`, { status: nextStatus });
+      toast.success(`Country is now ${nextStatus.toLowerCase()}`);
+      setCountries(countries.map((x) => (x.id === c.id ? { ...x, status: nextStatus } : x)));
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update status");
+    }
+  };
 
   const columns = [
     {
-      header: 'Country Name',
-      accessor: (country: Country) => (
-        <span className="font-medium text-slate-900">{country.name}</span>
-      )
+      header: "Country Name",
+      accessor: (country: CountryRecord) => (
+        <span className="font-bold text-slate-900">{country.name}</span>
+      ),
     },
     {
-      header: 'Country Code',
-      accessor: (country: Country) => (
-        <span className="text-slate-500 font-mono text-sm">{country.code}</span>
-      )
+      header: "ISO Code",
+      accessor: (country: CountryRecord) => (
+        <span className="text-slate-500 font-mono text-xs uppercase">{country.code}</span>
+      ),
     },
     {
-      header: 'Currency',
-      accessor: (country: Country) => (
-        <span className="text-slate-600">{country.currency}</span>
-      )
+      header: "Dial Code",
+      accessor: (country: CountryRecord) => (
+        <span className="text-slate-600 text-xs font-mono">{country.phoneCode || "—"}</span>
+      ),
     },
     {
-      header: 'Status',
-      accessor: (country: Country) => <StatusBadge status={country.status} />
+      header: "Currency",
+      accessor: (country: CountryRecord) => (
+        <span className="text-slate-700 text-xs font-semibold">{country.currency || "—"}</span>
+      ),
     },
     {
-      header: 'Action',
-      accessor: (country: Country) => (
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setIsDialogOpen(true)}
-            className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-            title="Edit"
+      header: "Status",
+      accessor: (country: CountryRecord) => {
+        const s = country.status;
+        const type = s === "ACTIVE" ? "success" : "neutral";
+        return <StatusBadge status={s} type={type as any} />;
+      },
+    },
+    {
+      header: "Action",
+      accessor: (country: CountryRecord) => (
+        <div className="flex items-center gap-1.5 justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleToggleStatus(country)}
+            className="text-xs text-slate-600"
           >
-            <Edit className="w-4 h-4" />
-          </button>
-          <button
-            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-            title="Delete"
+            {country.status === "ACTIVE" ? "Disable" : "Enable"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => handleDelete(country.id)}
+            className="text-slate-400 hover:text-danger"
           >
             <Trash2 className="w-4 h-4" />
-          </button>
+          </Button>
         </div>
-      )
-    }
+      ),
+    },
   ];
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <FilterBar
-          onSearch={setSearchQuery}
-          onReset={() => setSearchQuery('')}
-          searchPlaceholder="Search country..."
-        />
-
-        <button
-          onClick={() => setIsDialogOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Country</span>
-        </button>
+      <div className="flex justify-between items-center bg-white p-4 rounded-xl border shadow-sm">
+        <div>
+          <h2 className="text-base font-bold text-slate-800">Operational Countries & Currencies</h2>
+          <p className="text-xs text-slate-500">Configure regions where orders, shipping, and phone verification are allowed</p>
+        </div>
+        <Button onClick={() => setIsDialogOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs">
+          <Plus className="w-4 h-4 mr-1.5" /> Add Country
+        </Button>
       </div>
 
-      <DataTable
-        columns={columns}
-        data={filteredCountries}
-        keyExtractor={(country) => country.id}
-      />
+      <div className="bg-white border rounded-xl shadow-sm">
+        <DataTable columns={columns} data={countries} isLoading={isLoading} />
+      </div>
 
-      {/* Add/Edit Country Dialog */}
-      {isDialogOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b border-slate-100">
-              <h3 className="font-semibold text-slate-800">Add Country</h3>
-              <button 
-                onClick={() => setIsDialogOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+      {/* Add Country Dialog */}
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Country</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSaveCountry} className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">Country Name *</label>
+              <Input
+                placeholder="e.g. Bangladesh"
+                value={newCountry.name}
+                onChange={(e) => setNewCountry({ ...newCountry, name: e.target.value })}
+                required
+              />
             </div>
-            
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Country</label>
-                <select className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500">
-                  <option value="">Select a country...</option>
-                  <option value="BD">Bangladesh</option>
-                  <option value="US">United States</option>
-                  <option value="GB">United Kingdom</option>
-                  <option value="IN">India</option>
-                </select>
-              </div>
 
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Currency</label>
-                <input
-                  type="text"
-                  placeholder="e.g. BDT - ৳"
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">ISO Code (2-letter) *</label>
+                <Input
+                  placeholder="BD"
+                  value={newCountry.code}
+                  onChange={(e) => setNewCountry({ ...newCountry, code: e.target.value.toUpperCase() })}
+                  maxLength={2}
+                  required
                 />
               </div>
-
-              <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                <span className="text-sm font-medium text-slate-700">Status</span>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" className="sr-only peer" defaultChecked />
-                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                </label>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">Dial Code</label>
+                <Input
+                  placeholder="+880"
+                  value={newCountry.phoneCode}
+                  onChange={(e) => setNewCountry({ ...newCountry, phoneCode: e.target.value })}
+                />
               </div>
             </div>
 
-            <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
-              <button 
-                onClick={() => setIsDialogOpen(false)}
-                className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg transition-colors font-medium"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={() => setIsDialogOpen(false)}
-                className="px-4 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg transition-colors font-medium"
-              >
-                Save Country
-              </button>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">Currency Code</label>
+              <Input
+                placeholder="BDT"
+                value={newCountry.currency}
+                onChange={(e) => setNewCountry({ ...newCountry, currency: e.target.value.toUpperCase() })}
+              />
             </div>
-          </div>
-        </div>
-      )}
+
+            <Button type="submit" disabled={isSubmitting} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold">
+              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save Country"}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,286 +1,293 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
 import { DataTable } from "@/components/admin/DataTable";
 import { FilterBar } from "@/components/admin/FilterBar";
-import { mockSupplierPayments, SupplierPaymentRecord } from "@/lib/mock-data/accounting/supplier-payments";
-import { mockSuppliers } from "@/lib/mock-data/accounting/suppliers";
-import { mockWalletTypes } from "@/lib/mock-data/accounting/wallet-types";
+import { FilterConfig } from "@/types/table";
 import { ColumnDef } from "@tanstack/react-table";
-import { Plus } from "lucide-react";
+import { Plus, Banknote } from "lucide-react";
 import { toast } from "sonner";
+import { useSearchParams } from "next/navigation";
+import { apiGet } from "@/lib/api-client";
+import { PaymentSettlementDialog } from "@/components/admin/PaymentSettlementDialog";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+
+interface SupplierPaymentItem {
+  id: string;
+  referenceNo: string;
+  amount: number | string;
+  amountPaid?: number | string;
+  method: string;
+  createdAt: string;
+  note: string | null;
+  supplier?: { id: string; name: string; totalDue: number | string };
+  walletType?: { id: string; name: string } | null;
+  purchaseOrder?: { id: string; poNumber: string } | null;
+  recordedBy?: { id: string; name: string };
+}
 
 export default function SupplierPaymentsPage() {
+  const searchParams = useSearchParams();
+  const initialSupplierId = searchParams.get("supplierId") || "";
+
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
-  const [localData, setLocalData] = useState<SupplierPaymentRecord[]>(mockSupplierPayments);
-  const [suppliersData, setSuppliersData] = useState(mockSuppliers); // Track to update due amounts
-  
-  // Dialog State
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [formData, setFormData] = useState<Partial<SupplierPaymentRecord>>({
-    date: new Date().toISOString().split("T")[0],
-    supplierId: "",
-    amountPaid: 0,
-    paymentMethod: "Cash",
-    paidFromWallet: "",
-    relatedPurchaseOrder: "",
-    note: ""
+  const [data, setData] = useState<SupplierPaymentItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filters, setFilters] = useState<Record<string, unknown>>({
+    supplier: initialSupplierId,
   });
+
+  const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [selectedSupplierForPayment, setSelectedSupplierForPayment] = useState<any | null>(null);
+  const [pickerDialogOpen, setPickerDialogOpen] = useState(false);
+  const [pickerSupplierId, setPickerSupplierId] = useState("");
 
   useEffect(() => {
     setTitle("Supplier Payments");
     setBadge("Accounting");
-    setDateFilter("This Month"); 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    setDateFilter(""); 
+  }, [setTitle, setBadge, setDateFilter]);
 
-  const handleSave = () => {
-    if (!formData.supplierId || !formData.amountPaid) {
-      toast.error("Please fill all required fields");
-      return;
+  useEffect(() => {
+    apiGet<{ data: any[] }>("/suppliers", { limit: 100 })
+      .then((supRes) => {
+        if (supRes?.data) {
+          setSuppliers(supRes.data);
+          if (initialSupplierId) {
+            const found = supRes.data.find((s) => s.id === initialSupplierId);
+            if (found) {
+              setSelectedSupplierForPayment(found);
+            }
+          }
+        }
+      })
+      .catch(() => {});
+  }, [initialSupplierId]);
+
+  const loadData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const params: Record<string, any> = {};
+
+      if (filters.supplier) params.supplier = filters.supplier;
+      if (searchQuery.trim()) params.search = searchQuery.trim();
+
+      const res = await apiGet<{ data: SupplierPaymentItem[] }>("/supplier-payments", params);
+      setData(res?.data || []);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load supplier payments");
+    } finally {
+      setIsLoading(false);
     }
+  }, [filters, searchQuery]);
 
-    const supplier = suppliersData.find(s => s.id === formData.supplierId);
-    if (!supplier) return;
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
-    if (formData.amountPaid > supplier.totalDue) {
-      toast.error("Payment amount exceeds outstanding due");
-      return;
+  const handleOpenNewPayment = () => {
+    if (suppliers.length > 0) {
+      setPickerSupplierId(suppliers[0].id);
+      setPickerDialogOpen(true);
+    } else {
+      toast.error("No suppliers found");
     }
-
-    const newRecord: SupplierPaymentRecord = {
-      ...formData,
-      id: `sp${Date.now()}`,
-      referenceNo: `SP-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`,
-      supplierName: supplier.supplierName,
-      recordedBy: "Admin User", 
-    } as SupplierPaymentRecord;
-    
-    // Update local payments data
-    setLocalData(prev => [newRecord, ...prev]);
-
-    // Update supplier due amount
-    setSuppliersData(prev => prev.map(s => 
-      s.id === supplier.id ? { ...s, totalDue: s.totalDue - (formData.amountPaid || 0) } : s
-    ));
-
-    toast.success("Payment recorded successfully");
-    setDialogOpen(false);
   };
 
-  const selectedSupplierDue = formData.supplierId 
-    ? suppliersData.find(s => s.id === formData.supplierId)?.totalDue || 0
-    : 0;
-
-  const columns: ColumnDef<SupplierPaymentRecord>[] = [
-    {
-      accessorKey: "date",
-      header: "Date & Ref",
-      cell: ({ row }) => (
-        <div>
-          <div className="font-medium text-slate-800">{row.original.date}</div>
-          <div className="text-xs text-slate-500">{row.original.referenceNo}</div>
-        </div>
-      )
-    },
-    {
-      accessorKey: "supplierName",
-      header: "Supplier",
-      cell: ({ row }) => <span className="font-semibold text-slate-800">{row.original.supplierName}</span>
-    },
-    {
-      accessorKey: "amountPaid",
-      header: "Amount Paid",
-      cell: ({ row }) => <span className="font-bold text-emerald-600">৳{row.original.amountPaid.toLocaleString()}</span>
-    },
-    {
-      accessorKey: "paymentMethod",
-      header: "Method & Wallet",
-      cell: ({ row }) => (
-        <div>
-          <div className="text-sm font-medium text-slate-700">{row.original.paymentMethod}</div>
-          <div className="text-xs text-slate-500">{row.original.paidFromWallet}</div>
-        </div>
-      )
-    },
-    {
-      accessorKey: "relatedPurchaseOrder",
-      header: "Related PO",
-      cell: ({ row }) => <span className="text-sm text-slate-600">{row.original.relatedPurchaseOrder || "N/A"}</span>
+  const handleConfirmPicker = () => {
+    const sup = suppliers.find((s) => s.id === pickerSupplierId);
+    if (!sup) {
+      toast.error("Please select a supplier");
+      return;
     }
+    setPickerDialogOpen(false);
+    setSelectedSupplierForPayment(sup);
+  };
+
+  const filterConfigs: FilterConfig[] = useMemo(() => [
+    {
+      type: "select",
+      label: "Supplier",
+      key: "supplier",
+      options: suppliers.map((s) => ({ label: s.name, value: s.id })),
+    },
+  ], [suppliers]);
+
+  const columns: ColumnDef<SupplierPaymentItem>[] = [
+    {
+      accessorKey: "referenceNo",
+      header: "Reference No",
+      cell: ({ row }) => (
+        <span className="font-mono text-xs font-bold text-slate-800">
+          {row.original.referenceNo || row.original.id}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "supplier",
+      header: "Supplier",
+      cell: ({ row }) => (
+        <div>
+          <p className="font-semibold text-slate-800 text-sm">{row.original.supplier?.name || "N/A"}</p>
+        </div>
+      ),
+    },
+    {
+      accessorKey: "amount",
+      header: "Amount Paid",
+      cell: ({ row }) => (
+        <span className="font-bold text-emerald-600 text-base">
+          ৳{Number(row.original.amount || row.original.amountPaid || 0).toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "method",
+      header: "Payment Method",
+      cell: ({ row }) => (
+        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
+          {row.original.method?.replace("_", " ")}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "walletType",
+      header: "Wallet Account",
+      cell: ({ row }) => (
+        <span className="text-slate-600 text-xs font-medium">
+          {row.original.walletType?.name || "Direct Cash / Bank"}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "purchaseOrder",
+      header: "PO Reference",
+      cell: ({ row }) => (
+        <span className="text-xs text-slate-500 font-mono">
+          {row.original.purchaseOrder?.poNumber || "Global Settlement"}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "createdAt",
+      header: "Date",
+      cell: ({ row }) => (
+        <span className="text-slate-500 text-xs">
+          {new Date(row.original.createdAt).toLocaleDateString("en-GB")}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "recordedBy",
+      header: "Recorded By",
+      cell: ({ row }) => (
+        <span className="text-slate-500 text-xs">
+          {row.original.recordedBy?.name || "Admin"}
+        </span>
+      ),
+    },
   ];
 
   return (
     <div className="space-y-6">
-      
-      {/* Record Payment Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">Supplier Payments</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Disburse and track vendor settlement receipts</p>
+        </div>
+        <button
+          onClick={handleOpenNewPayment}
+          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors shadow-sm"
+        >
+          <Plus className="w-4 h-4" /> Record Supplier Payment
+        </button>
+      </div>
+
+      <FilterBar
+        searchPlaceholder="Search by reference, supplier, note..."
+        filters={filterConfigs}
+        onSearchChange={(val) => setSearchQuery(val)}
+        onFilterChange={(key, val) => setFilters((prev) => ({ ...prev, [key]: val }))}
+        onReset={() => {
+          setSearchQuery("");
+          setFilters({});
+        }}
+      />
+
+      <DataTable columns={columns} data={data} pageSize={10} />
+
+      {/* Supplier Select Modal (when clicking "+ Record Supplier Payment" from list without preset supplier) */}
+      <Dialog open={pickerDialogOpen} onOpenChange={setPickerDialogOpen}>
+        <DialogContent className="sm:max-w-[420px] rounded-2xl p-6">
           <DialogHeader>
-            <DialogTitle>Record Supplier Payment</DialogTitle>
+            <DialogTitle className="text-base font-bold text-slate-900">
+              Select Supplier for Payment
+            </DialogTitle>
           </DialogHeader>
-          <div className="pt-4 space-y-4">
-            
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Select Supplier *</label>
-              <select 
-                className="w-full h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                value={formData.supplierId}
-                onChange={e => setFormData({ ...formData, supplierId: e.target.value })}
+          <div className="space-y-4 pt-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Target Supplier *
+              </label>
+              <select
+                value={pickerSupplierId}
+                onChange={(e) => setPickerSupplierId(e.target.value)}
+                className="w-full h-11 px-3 bg-white border border-slate-200 rounded-xl text-sm font-semibold outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
               >
-                <option value="">Choose Supplier...</option>
-                {suppliersData.filter(s => s.totalDue > 0).map(s => (
-                  <option key={s.id} value={s.id}>{s.supplierName} (Due: ৳{s.totalDue.toLocaleString()})</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} (Due: ৳{Number(s.totalDue || 0).toLocaleString()})
+                  </option>
                 ))}
               </select>
-              {formData.supplierId && (
-                <p className="text-xs text-rose-600 font-medium">Outstanding Due: ৳{selectedSupplierDue.toLocaleString()}</p>
-              )}
             </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Date *</label>
-                <Input 
-                  type="date"
-                  value={formData.date}
-                  onChange={e => setFormData({ ...formData, date: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Amount (৳) *</label>
-                <Input 
-                  type="number"
-                  value={formData.amountPaid}
-                  onChange={e => setFormData({ ...formData, amountPaid: Number(e.target.value) })}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Payment Method</label>
-                <select 
-                  className="w-full h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                  value={formData.paymentMethod}
-                  onChange={e => setFormData({ ...formData, paymentMethod: e.target.value as any })}
-                >
-                  <option value="Cash">Cash</option>
-                  <option value="Bank Transfer">Bank Transfer</option>
-                  <option value="bKash">bKash</option>
-                  <option value="Cheque">Cheque</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Wallet Account</label>
-                <select 
-                  className="w-full h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                  value={formData.paidFromWallet}
-                  onChange={e => setFormData({ ...formData, paidFromWallet: e.target.value })}
-                >
-                  <option value="">Select Wallet...</option>
-                  {mockWalletTypes.map(w => (
-                    <option key={w.id} value={w.name}>{w.name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Related PO (Optional)</label>
-              <Input 
-                placeholder="e.g. PO-2608-001"
-                value={formData.relatedPurchaseOrder}
-                onChange={e => setFormData({ ...formData, relatedPurchaseOrder: e.target.value })}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Note</label>
-              <Textarea 
-                placeholder="Brief description..."
-                value={formData.note}
-                onChange={e => setFormData({ ...formData, note: e.target.value })}
-              />
-            </div>
-
-            <div className="flex justify-end gap-3 pt-4">
-              <button 
-                onClick={() => setDialogOpen(false)}
-                className="px-4 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium rounded-lg transition-colors text-sm"
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setPickerDialogOpen(false)}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-medium text-slate-700 hover:bg-slate-50"
               >
                 Cancel
               </button>
-              <button 
-                onClick={handleSave}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors text-sm"
+              <button
+                type="button"
+                onClick={handleConfirmPicker}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold"
               >
-                Record Payment
+                Continue to Payment
               </button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
 
-      <div className="flex justify-between items-center">
-        <FilterBar 
-          searchPlaceholder="Search supplier or reference..."
-          onSearch={() => {}}
-          onReset={() => {}}
-          filters={[
-            {
-              key: "supplier",
-              label: "Supplier",
-              options: mockSuppliers.map(s => ({ label: s.supplierName, value: s.id }))
-            },
-            {
-              key: "method",
-              label: "Method",
-              options: [
-                { label: "Cash", value: "Cash" },
-                { label: "Bank Transfer", value: "Bank Transfer" },
-                { label: "bKash", value: "bKash" },
-                { label: "Cheque", value: "Cheque" }
-              ]
-            }
-          ]}
-        />
-        <button 
-          onClick={() => {
-            setFormData({
-              date: new Date().toISOString().split("T")[0],
-              supplierId: "",
-              amountPaid: 0,
-              paymentMethod: "Cash",
-              paidFromWallet: "",
-              relatedPurchaseOrder: "",
-              note: ""
-            });
-            setDialogOpen(true);
+      {/* Rich Live-Calculation Payment Settlement Dialog */}
+      {selectedSupplierForPayment && (
+        <PaymentSettlementDialog
+          open={Boolean(selectedSupplierForPayment)}
+          onOpenChange={(open) => {
+            if (!open) setSelectedSupplierForPayment(null);
           }}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors text-sm whitespace-nowrap ml-4 shrink-0"
-        >
-          <Plus className="w-4 h-4" /> Record Payment
-        </button>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden p-5">
-        <DataTable 
-          columns={columns} 
-          data={localData} 
-          pageSize={10}
+          entityType="supplier"
+          entityId={selectedSupplierForPayment.id}
+          entityName={selectedSupplierForPayment.name}
+          totalDue={Number(selectedSupplierForPayment.totalDue || 0)}
+          onPaymentSuccess={() => {
+            loadData();
+            // Refresh supplier details list
+            apiGet<{ data: any[] }>("/suppliers", { limit: 100 }).then((res) => {
+              if (res?.data) setSuppliers(res.data);
+            }).catch(() => {});
+          }}
         />
-      </div>
-
+      )}
     </div>
   );
 }

@@ -374,6 +374,7 @@ model Staff {
   SupplierPayment    SupplierPayment[]
   Blog               Blog[]
   SupportTicket      SupportTicket[]
+  orderNotes         OrderNote[]
 }
 
 model RefreshToken {
@@ -443,6 +444,7 @@ model Branch {
   openingStockValue Decimal           @default(0)
   taxRegNumber      String?
   showInFooter      Boolean           @default(true)
+  isOnlineDefault   Boolean           @default(false)
   staff             Staff[]           @relation("BranchStaff")
   orders            Order[]
   stockAdjustments  StockAdjustment[]
@@ -631,11 +633,13 @@ model Order {
   shippingAddress   Address?             @relation(fields: [shippingAddressId], references: [id])
   items             OrderItem[]
   statusHistory     OrderStatusHistory[]
+  notes             OrderNote[]
   serviceJob        ServiceJob?
   shipment          Shipment?
   salesReturn       SalesReturn?
   exchange          Exchange?
   supportTickets    SupportTicket[]
+  paymentAttempts   PaymentAttempt[]
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
 }
@@ -665,6 +669,16 @@ model OrderStatusHistory {
   changedById String?
   changedBy   Staff?      @relation(fields: [changedById], references: [id])
   createdAt   DateTime    @default(now())
+}
+
+model OrderNote {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  staffId   String
+  staff     Staff    @relation(fields: [staffId], references: [id])
+  note      String
+  createdAt DateTime @default(now())
 }
 
 model SalesReturn {
@@ -1194,4 +1208,15 @@ model PasswordResetToken {
   used      Boolean  @default(false)
   expiresAt DateTime
   createdAt DateTime @default(now())
+}
+
+model PaymentAttempt {
+  id          String             @id @default(cuid())
+  orderId     String
+  order       Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  gateway     PaymentGatewayName
+  gatewayRef  String?
+  status      String
+  rawResponse Json?
+  createdAt   DateTime           @default(now())
 }

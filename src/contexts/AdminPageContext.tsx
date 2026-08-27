@@ -1,8 +1,16 @@
 "use client";
 
-import { createContext, useContext, useState, ReactNode, useCallback } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
+import { apiGet } from "@/lib/api-client";
 
 type Breadcrumb = { label: string; href: string };
+
+export interface AdminBranch {
+  id: string;
+  name: string;
+  code?: string;
+  isHeadquarters?: boolean;
+}
 
 type PageContextType = {
   title: string;
@@ -18,6 +26,15 @@ type PageContextType = {
   breadcrumbs: Breadcrumb[];
   setBreadcrumbs: (b: Breadcrumb[]) => void;
   setPageInfo: (info: { title?: string; badge?: string; breadcrumbs?: Breadcrumb[] }) => void;
+  
+  // Branch filter app-wide single source of truth
+  selectedBranchId: string;
+  setSelectedBranchId: (id: string) => void;
+  selectedBranchName: string;
+  setSelectedBranchName: (name: string) => void;
+  branches: AdminBranch[];
+  setBranches: (branches: AdminBranch[]) => void;
+  selectBranch: (id: string, name: string) => void;
 };
 
 const AdminPageContext = createContext<PageContextType | undefined>(undefined);
@@ -29,6 +46,39 @@ export function AdminPageProvider({ children }: { children: ReactNode }) {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [breadcrumbs, setBreadcrumbs] = useState<Breadcrumb[]>([]);
+
+  // Branch state
+  const [selectedBranchId, setSelectedBranchId] = useState<string>("");
+  const [selectedBranchName, setSelectedBranchName] = useState<string>("All Branches");
+  const [branches, setBranches] = useState<AdminBranch[]>([]);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedBranchId = localStorage.getItem("admin_selected_branch_id") || "";
+      const savedBranchName = localStorage.getItem("admin_selected_branch_name") || "All Branches";
+      setSelectedBranchId(savedBranchId);
+      setSelectedBranchName(savedBranchName);
+    }
+  }, []);
+
+  useEffect(() => {
+    apiGet<AdminBranch[]>("/branches/public")
+      .then((res) => {
+        if (Array.isArray(res)) {
+          setBranches(res);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const selectBranch = useCallback((id: string, name: string) => {
+    setSelectedBranchId(id);
+    setSelectedBranchName(name);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("admin_selected_branch_id", id);
+      localStorage.setItem("admin_selected_branch_name", name);
+    }
+  }, []);
 
   const setPageInfo = useCallback((info: { title?: string; badge?: string; breadcrumbs?: Breadcrumb[] }) => {
     if (info.title) setTitle(info.title);
@@ -44,7 +94,11 @@ export function AdminPageProvider({ children }: { children: ReactNode }) {
       isSidebarCollapsed, setIsSidebarCollapsed,
       isMobileSidebarOpen, setIsMobileSidebarOpen,
       breadcrumbs, setBreadcrumbs,
-      setPageInfo
+      setPageInfo,
+      selectedBranchId, setSelectedBranchId,
+      selectedBranchName, setSelectedBranchName,
+      branches, setBranches,
+      selectBranch,
     }}>
       {children}
     </AdminPageContext.Provider>

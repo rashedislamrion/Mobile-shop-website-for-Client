@@ -1,16 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
-import {
-  kpiRow1,
-  kpiRow2,
-  orderStatuses,
-  chartData,
-  topProducts,
-  topCustomers,
-  recentOrders
-} from "@/lib/mock-data/admin-dashboard";
+import { apiGet } from "@/lib/api-client";
 import {
   Wallet,
   Package,
@@ -30,10 +22,10 @@ import {
   XCircle,
   Activity,
   CheckCircle,
-  Eye
+  Eye,
+  Store
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -55,6 +47,33 @@ import {
 } from 'recharts';
 import Image from "next/image";
 import Link from "next/link";
+
+interface DashboardData {
+  kpi: {
+    totalRevenue: number;
+    netProductSales: number;
+    netServiceRevenue: number;
+    liquidSales: number;
+    totalExpensePayroll: number;
+    totalPurchase: number;
+    totalSupplierPayment: number;
+    totalSupplierDue: number;
+  };
+  orderStatuses: {
+    pending: number;
+    confirmed: number;
+    parcelBooked: number;
+    delivered: number;
+    returned: number;
+    cancelled: number;
+    diagnosing: number;
+    completed: number;
+  };
+  chartData: Array<{ name: string; income: number; expense: number; order: number }>;
+  topProducts: Array<{ id: string; name: string; category: string; price: number; unitsSold: number; image: string | null }>;
+  recentOrders: Array<{ id: string; orderCode: string; customerName: string; branchName: string; totalAmount: number; status: string; createdAt: string }>;
+  topCustomers: Array<{ id: string; name: string; phone: string; ordersCount: number; totalSpend: number }>;
+}
 
 const getIconForKpi = (id: string) => {
   switch (id) {
@@ -84,122 +103,251 @@ const getBgForKpi = (id: string) => {
   }
 };
 
-const getStatusIcon = (label: string) => {
-  switch (label) {
-    case "Pending": return <Clock className="w-5 h-5 text-amber-500" />;
-    case "Confirmed": return <CheckCircle2 className="w-5 h-5 text-blue-500" />;
-    case "Parcel Booked": return <PackageCheck className="w-5 h-5 text-indigo-500" />;
-    case "Delivered": return <Truck className="w-5 h-5 text-emerald-500" />;
-    case "Returned": return <Undo2 className="w-5 h-5 text-orange-500" />;
-    case "Cancelled": return <XCircle className="w-5 h-5 text-red-500" />;
-    case "Diagnosing": return <Activity className="w-5 h-5 text-purple-500" />;
-    case "Completed": return <CheckCircle className="w-5 h-5 text-teal-500" />;
-    default: return <Clock className="w-5 h-5" />;
-  }
-};
-
 export default function AdminDashboardPage() {
-  const { setTitle, setBadge, setDateFilter } = useAdminPage();
+  const { setTitle, setBadge, dateFilter, selectedBranchId, selectedBranchName } = useAdminPage();
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     setTitle("Dashboard");
     setBadge("Website");
-    setDateFilter("This Month");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [setTitle, setBadge]);
+
+  const loadDashboard = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const params: Record<string, any> = {};
+      if (selectedBranchId) params.branch = selectedBranchId;
+      if (dateFilter) params.period = dateFilter;
+
+      const res = await apiGet<DashboardData>("/reports/dashboard", params);
+      if (res && res.kpi) {
+        setData(res);
+      }
+    } catch {
+      // Fallback gracefully
+    } finally {
+      setIsLoading(false);
+    }
+  }, [selectedBranchId, dateFilter]);
+
+  useEffect(() => {
+    loadDashboard();
+  }, [loadDashboard]);
+
+  const kpi = data?.kpi || {
+    totalRevenue: 0,
+    netProductSales: 0,
+    netServiceRevenue: 0,
+    liquidSales: 0,
+    totalExpensePayroll: 0,
+    totalPurchase: 0,
+    totalSupplierPayment: 0,
+    totalSupplierDue: 0,
+  };
+
+  const orderStatuses = [
+    { label: "Pending", count: data?.orderStatuses?.pending ?? 0, bg: "bg-amber-50", icon: <Clock className="w-5 h-5 text-amber-500" /> },
+    { label: "Confirmed", count: data?.orderStatuses?.confirmed ?? 0, bg: "bg-blue-50", icon: <CheckCircle2 className="w-5 h-5 text-blue-500" /> },
+    { label: "Parcel Booked", count: data?.orderStatuses?.parcelBooked ?? 0, bg: "bg-indigo-50", icon: <PackageCheck className="w-5 h-5 text-indigo-500" /> },
+    { label: "Delivered", count: data?.orderStatuses?.delivered ?? 0, bg: "bg-emerald-50", icon: <Truck className="w-5 h-5 text-emerald-500" /> },
+    { label: "Returned", count: data?.orderStatuses?.returned ?? 0, bg: "bg-orange-50", icon: <Undo2 className="w-5 h-5 text-orange-500" /> },
+    { label: "Cancelled", count: data?.orderStatuses?.cancelled ?? 0, bg: "bg-red-50", icon: <XCircle className="w-5 h-5 text-red-500" /> },
+    { label: "Diagnosing", count: data?.orderStatuses?.diagnosing ?? 0, bg: "bg-purple-50", icon: <Activity className="w-5 h-5 text-purple-500" /> },
+    { label: "Completed", count: data?.orderStatuses?.completed ?? 0, bg: "bg-teal-50", icon: <CheckCircle className="w-5 h-5 text-teal-500" /> },
+  ];
+
+  const chartData = (data?.chartData && data.chartData.length > 0)
+    ? data.chartData
+    : [
+        { name: "Mon", income: 0, expense: 0, order: 0 },
+        { name: "Tue", income: 0, expense: 0, order: 0 },
+        { name: "Wed", income: 0, expense: 0, order: 0 },
+        { name: "Thu", income: 0, expense: 0, order: 0 },
+        { name: "Fri", income: 0, expense: 0, order: 0 },
+        { name: "Sat", income: 0, expense: 0, order: 0 },
+        { name: "Sun", income: 0, expense: 0, order: 0 },
+      ];
+
+  const topProducts = data?.topProducts || [];
+  const recentOrders = data?.recentOrders || [];
+  const topCustomers = data?.topCustomers || [];
 
   return (
     <div className="space-y-6">
       
+      {/* Active Branch Scope Indicator */}
+      {selectedBranchId && (
+        <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-2 rounded-xl text-sm font-medium">
+          <Store className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>Showing data filtered for: <strong>{selectedBranchName}</strong></span>
+        </div>
+      )}
+
       {/* ROW 1: KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {kpiRow1.map((kpi) => (
-          <Card key={kpi.id} className="rounded-xl border-none shadow-sm">
-            <CardContent className="p-5">
-              <div className="flex items-center gap-4 mb-4">
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi(kpi.id)}`}>
-                  {getIconForKpi(kpi.id)}
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-500">{kpi.label}</p>
-                  <h3 className="text-2xl font-bold text-slate-800">{kpi.value}</h3>
-                </div>
+        <Card className="rounded-xl border-none shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-4 mb-4">
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("rev")}`}>
+                {getIconForKpi("rev")}
               </div>
-              <div className="flex items-center gap-1.5 text-xs">
-                {kpi.isPositive ? (
-                  <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
-                ) : (
-                  <TrendingDown className="w-3.5 h-3.5 text-red-500" />
-                )}
-                <span className={`font-semibold ${kpi.isPositive ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {kpi.trendPercentage}
-                </span>
-                <span className="text-slate-400">vs last period</span>
+              <div>
+                <p className="text-sm font-medium text-slate-500">Total Revenue</p>
+                <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.totalRevenue.toLocaleString()}</h3>
               </div>
-            </CardContent>
-          </Card>
-        ))}
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <span className="font-semibold text-emerald-600">Active</span>
+              <span>• Product & Service gross</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-xl border-none shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-4 mb-4">
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("prod")}`}>
+                {getIconForKpi("prod")}
+              </div>
+              <div>
+                <p className="text-sm font-medium text-slate-500">Net Product Sales</p>
+                <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.netProductSales.toLocaleString()}</h3>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <span className="font-semibold text-blue-600">Orders</span>
+              <span>• Excl. returns & cancelled</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-xl border-none shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-4 mb-4">
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("serv")}`}>
+                {getIconForKpi("serv")}
+              </div>
+              <div>
+                <p className="text-sm font-medium text-slate-500">Net Service Revenue</p>
+                <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.netServiceRevenue.toLocaleString()}</h3>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <span className="font-semibold text-indigo-600">Repairs</span>
+              <span>• Service charges realized</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-xl border-none shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-4 mb-4">
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("liq")}`}>
+                {getIconForKpi("liq")}
+              </div>
+              <div>
+                <p className="text-sm font-medium text-slate-500">Liquid Sales</p>
+                <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.liquidSales.toLocaleString()}</h3>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <span className="font-semibold text-purple-600">Realized</span>
+              <span>• Paid collections</span>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* ROW 2: KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {kpiRow2.map((kpi) => (
-          <Card key={kpi.id} className="rounded-xl border-none shadow-sm">
-            <CardContent className="p-5">
-              <div className="flex items-center gap-4 mb-4">
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi(kpi.id)}`}>
-                  {getIconForKpi(kpi.id)}
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-slate-500">{kpi.label}</p>
-                  <h3 className="text-2xl font-bold text-slate-800">{kpi.value}</h3>
-                </div>
+        <Card className="rounded-xl border-none shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-4 mb-4">
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("exp")}`}>
+                {getIconForKpi("exp")}
               </div>
-              <div className="flex items-center gap-1.5 text-xs">
-                {kpi.isPositive ? (
-                  <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
-                ) : (
-                  <TrendingDown className="w-3.5 h-3.5 text-red-500" />
-                )}
-                <span className={`font-semibold ${kpi.isPositive ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {kpi.trendPercentage}
-                </span>
-                <span className="text-slate-400">vs last period</span>
+              <div>
+                <p className="text-sm font-medium text-slate-500">Total Expense + Payroll</p>
+                <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.totalExpensePayroll.toLocaleString()}</h3>
               </div>
-            </CardContent>
-          </Card>
-        ))}
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <span className="font-semibold text-amber-600">Operational</span>
+              <span>• Paid outflows</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-xl border-none shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-4 mb-4">
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("pur")}`}>
+                {getIconForKpi("pur")}
+              </div>
+              <div>
+                <p className="text-sm font-medium text-slate-500">Total Purchase</p>
+                <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.totalPurchase.toLocaleString()}</h3>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <span className="font-semibold text-cyan-600">Procurement</span>
+              <span>• Inventory orders</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-xl border-none shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-4 mb-4">
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("spay")}`}>
+                {getIconForKpi("spay")}
+              </div>
+              <div>
+                <p className="text-sm font-medium text-slate-500">Total Supplier Payment</p>
+                <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.totalSupplierPayment.toLocaleString()}</h3>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <span className="font-semibold text-teal-600">Disbursed</span>
+              <span>• Settled supplier payments</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-xl border-none shadow-sm">
+          <CardContent className="p-5">
+            <div className="flex items-center gap-4 mb-4">
+              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("sdue")}`}>
+                {getIconForKpi("sdue")}
+              </div>
+              <div>
+                <p className="text-sm font-medium text-slate-500">Total Supplier Due</p>
+                <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.totalSupplierDue.toLocaleString()}</h3>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-slate-400">
+              <span className="font-semibold text-rose-600">Payable</span>
+              <span>• Outstanding supplier balances</span>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* ORDER STATUS OVERVIEW */}
       <Card className="rounded-xl border-none shadow-sm overflow-hidden">
         <CardHeader className="border-b bg-white p-4 flex flex-row items-center justify-between">
           <CardTitle className="text-lg font-bold text-slate-800">Order Status Overview</CardTitle>
-          <div className="w-32">
-            <Select defaultValue="this-month">
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Period" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="today">Today</SelectItem>
-                <SelectItem value="this-week">This Week</SelectItem>
-                <SelectItem value="this-month">This Month</SelectItem>
-                <SelectItem value="this-year">This Year</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <span className="text-xs text-slate-500">{selectedBranchName}</span>
         </CardHeader>
         <CardContent className="p-4 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-4">
           {orderStatuses.map((status) => (
             <div key={status.label} className="flex flex-col items-center justify-center text-center p-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors">
               <div className={`w-10 h-10 rounded-full flex items-center justify-center mb-2 ${status.bg}`}>
-                {getStatusIcon(status.label)}
+                {status.icon}
               </div>
               <p className="text-xl font-bold text-slate-800 leading-tight">{status.count}</p>
               <p className="text-xs font-medium text-slate-500 mt-1">{status.label}</p>
-              <span className={`text-[10px] font-semibold mt-1 ${status.trend.startsWith('+') ? 'text-emerald-600' : 'text-red-600'}`}>
-                {status.trend}
-              </span>
             </div>
           ))}
         </CardContent>
@@ -208,19 +356,8 @@ export default function AdminDashboardPage() {
       {/* SUMMARY CHART */}
       <Card className="rounded-xl border-none shadow-sm">
         <CardHeader className="border-b bg-white p-4 flex flex-row items-center justify-between">
-          <CardTitle className="text-lg font-bold text-slate-800">Summary</CardTitle>
-          <div className="w-36">
-            <Select defaultValue="7d">
-              <SelectTrigger className="h-8 text-xs">
-                <SelectValue placeholder="Period" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="7d">Last 7 Days</SelectItem>
-                <SelectItem value="30d">Last 30 Days</SelectItem>
-                <SelectItem value="1y">Last 1 Year</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <CardTitle className="text-lg font-bold text-slate-800">Summary (Last 7 Days)</CardTitle>
+          <span className="text-xs text-slate-500">{selectedBranchName}</span>
         </CardHeader>
         <CardContent className="p-4 h-[350px]">
           <ResponsiveContainer width="100%" height="100%">
@@ -240,16 +377,16 @@ export default function AdminDashboardPage() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-              <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(value) => `৳${value / 1000}k`} />
+              <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(value) => `৳${value >= 1000 ? `${value / 1000}k` : value}`} />
               <Tooltip 
                 contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)' }}
                 formatter={(value: unknown) => [`৳ ${Number(value).toLocaleString()}`, undefined]}
               />
               <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} />
-              <Area type="monotone" dataKey="Order" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorOrder)" />
-              <Area type="monotone" dataKey="IncomeGrowth" name="Income Growth" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorIncome)" />
-              <Area type="monotone" dataKey="ExpenseGrowth" name="Expense Growth" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorExpense)" />
+              <Area type="monotone" dataKey="order" name="Order Count" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorOrder)" />
+              <Area type="monotone" dataKey="income" name="Income (৳)" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorIncome)" />
+              <Area type="monotone" dataKey="expense" name="Expense (৳)" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorExpense)" />
             </AreaChart>
           </ResponsiveContainer>
         </CardContent>
@@ -265,20 +402,28 @@ export default function AdminDashboardPage() {
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y divide-slate-100">
-              {topProducts.map((product) => (
-                <div key={product.id} className="flex items-center gap-4 p-4 hover:bg-slate-50 transition-colors">
-                  <div className="relative w-12 h-12 rounded-lg bg-slate-100 overflow-hidden shrink-0 border border-slate-200">
-                    <Image src={product.image} alt={product.name} fill className="object-cover" />
+              {topProducts.length > 0 ? (
+                topProducts.map((product) => (
+                  <div key={product.id} className="flex items-center gap-4 p-4 hover:bg-slate-50 transition-colors">
+                    <div className="relative w-12 h-12 rounded-lg bg-slate-100 overflow-hidden shrink-0 border border-slate-200">
+                      {product.image ? (
+                        <Image src={product.image} alt={product.name} fill className="object-cover" />
+                      ) : (
+                        <Package className="w-6 h-6 m-3 text-slate-400" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-slate-800 truncate">{product.name}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">{product.category} • ৳{Number(product.price).toLocaleString()}</p>
+                    </div>
+                    <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-none shrink-0">
+                      {product.unitsSold} Sold
+                    </Badge>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-slate-800 truncate">{product.name}</p>
-                    <p className="text-xs text-slate-500 mt-0.5">Top Rated</p>
-                  </div>
-                  <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border-none shrink-0">
-                    {product.sales}
-                  </Badge>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-sm text-slate-400 p-6 text-center">No sales recorded for this branch yet</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -287,25 +432,28 @@ export default function AdminDashboardPage() {
         <Card className="rounded-xl border-none shadow-sm">
           <CardHeader className="border-b bg-white p-4 flex flex-row items-center justify-between">
             <CardTitle className="text-lg font-bold text-slate-800">Weekly Top Customers</CardTitle>
-            <Link href="/admin/customers" className="text-sm font-medium text-emerald-600 hover:text-emerald-700">View All</Link>
+            <Link href="/admin/reports/customer-due" className="text-sm font-medium text-emerald-600 hover:text-emerald-700">View All</Link>
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y divide-slate-100">
-              {topCustomers.map((customer) => (
-                <div key={customer.id} className="flex items-center gap-4 p-4 hover:bg-slate-50 transition-colors">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 font-bold ${customer.color}`}>
-                    {customer.initial}
+              {topCustomers.length > 0 ? (
+                topCustomers.map((customer) => (
+                  <div key={customer.id} className="flex items-center gap-4 p-4 hover:bg-slate-50 transition-colors">
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 font-bold bg-emerald-100 text-emerald-700">
+                      {customer.name.charAt(0)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-slate-800 truncate">{customer.name}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">{customer.ordersCount} Orders • ৳{Number(customer.totalSpend).toLocaleString()}</p>
+                    </div>
+                    <span className="text-xs font-semibold text-emerald-600">
+                      ৳{Number(customer.totalSpend).toLocaleString()}
+                    </span>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-slate-800 truncate">{customer.name}</p>
-                    <p className="text-xs text-slate-500 mt-0.5">{customer.orders}</p>
-                  </div>
-                  <button className="text-xs font-semibold text-slate-400 hover:text-emerald-600 flex items-center gap-1 transition-colors">
-                    <Eye className="w-4 h-4" />
-                    View
-                  </button>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-sm text-slate-400 p-6 text-center">No customer data for this branch yet</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -321,44 +469,54 @@ export default function AdminDashboardPage() {
           <Table>
             <TableHeader className="bg-slate-50">
               <TableRow>
-                <TableHead className="w-[100px] whitespace-nowrap text-slate-500 font-medium">Order ID</TableHead>
-                <TableHead className="min-w-[200px] text-slate-500 font-medium">Product</TableHead>
+                <TableHead className="w-[120px] whitespace-nowrap text-slate-500 font-medium">Order Code</TableHead>
                 <TableHead className="whitespace-nowrap text-slate-500 font-medium">Customer</TableHead>
+                <TableHead className="whitespace-nowrap text-slate-500 font-medium">Branch</TableHead>
+                <TableHead className="whitespace-nowrap text-slate-500 font-medium">Total Amount</TableHead>
                 <TableHead className="whitespace-nowrap text-slate-500 font-medium">Date</TableHead>
                 <TableHead className="whitespace-nowrap text-slate-500 font-medium">Status</TableHead>
                 <TableHead className="text-right whitespace-nowrap text-slate-500 font-medium">Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {recentOrders.map((order) => (
-                <TableRow key={order.id} className="hover:bg-slate-50/50">
-                  <TableCell className="font-semibold text-slate-800">{order.id}</TableCell>
-                  <TableCell className="font-medium text-slate-700">{order.product}</TableCell>
-                  <TableCell className="text-slate-600">{order.customer}</TableCell>
-                  <TableCell className="text-slate-500 text-sm">{order.date}</TableCell>
-                  <TableCell>
-                    <Badge 
-                      variant="outline" 
-                      className={`
-                        border-none font-semibold px-2 py-0.5
-                        ${order.status === 'Delivered' ? 'bg-emerald-50 text-emerald-600' : ''}
-                        ${order.status === 'Pending' ? 'bg-amber-50 text-amber-600' : ''}
-                        ${order.status === 'Confirmed' ? 'bg-blue-50 text-blue-600' : ''}
-                        ${order.status === 'Parcel Booked' ? 'bg-indigo-50 text-indigo-600' : ''}
-                        ${order.status === 'Returned' ? 'bg-orange-50 text-orange-600' : ''}
-                        ${order.status === 'Cancelled' ? 'bg-red-50 text-red-600' : ''}
-                      `}
-                    >
-                      {order.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <button className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors inline-flex">
-                      <Eye className="w-4 h-4" />
-                    </button>
+              {recentOrders.length > 0 ? (
+                recentOrders.map((order) => (
+                  <TableRow key={order.id} className="hover:bg-slate-50/50">
+                    <TableCell className="font-semibold text-slate-800">{order.orderCode}</TableCell>
+                    <TableCell className="text-slate-600">{order.customerName}</TableCell>
+                    <TableCell className="text-slate-600">{order.branchName}</TableCell>
+                    <TableCell className="font-bold text-slate-900">৳ {Number(order.totalAmount).toLocaleString()}</TableCell>
+                    <TableCell className="text-slate-500 text-sm">{new Date(order.createdAt).toLocaleDateString("en-GB")}</TableCell>
+                    <TableCell>
+                      <Badge 
+                        variant="outline" 
+                        className={`
+                          border-none font-semibold px-2 py-0.5
+                          ${order.status === 'DELIVERED' || order.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-600' : ''}
+                          ${order.status === 'PENDING' ? 'bg-amber-50 text-amber-600' : ''}
+                          ${order.status === 'CONFIRMED' ? 'bg-blue-50 text-blue-600' : ''}
+                          ${order.status === 'PARCEL_BOOKED' ? 'bg-indigo-50 text-indigo-600' : ''}
+                          ${order.status === 'RETURNED' ? 'bg-orange-50 text-orange-600' : ''}
+                          ${order.status === 'CANCELLED' ? 'bg-red-50 text-red-600' : ''}
+                        `}
+                      >
+                        {order.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Link href={`/admin/orders/${order.id}`} className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors inline-flex">
+                        <Eye className="w-4 h-4" />
+                      </Link>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-6 text-slate-400">
+                    No orders found for this branch
                   </TableCell>
                 </TableRow>
-              ))}
+              )}
             </TableBody>
           </Table>
         </CardContent>

@@ -1,52 +1,117 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
 import { FilterBar } from "@/components/admin/FilterBar";
 import { DataTable, StatusBadge, ActionDropdown } from "@/components/admin/DataTable";
 import { FilterConfig, StatusVariant, TableAction } from "@/types/table";
-import { mockOrders, MockOrder } from "@/lib/mock-data/orders";
 import { ColumnDef } from "@tanstack/react-table";
-import { Eye, FileText, CheckCircle, Edit, Trash2 } from "lucide-react";
+import { Eye, CheckCircle, Edit, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { apiGet, apiPatch } from "@/lib/api-client";
+import { toast } from "sonner";
+
+interface OrderItem {
+  id: string;
+  productNameSnapshot: string;
+  quantity: number;
+}
+
+interface OrderRecord {
+  id: string;
+  orderCode: string;
+  createdAt: string;
+  branch?: { id: string; name: string };
+  customer?: { id: string; name: string; phone: string; email: string };
+  items: OrderItem[];
+  totalAmount: number | string;
+  subtotal: number | string;
+  dueAmount: number | string;
+  paidAmount: number | string;
+  paymentStatus: string;
+  status: string;
+  staff?: { id: string; name: string };
+}
 
 export default function OrdersPage() {
-  const { setTitle, setBadge, setDateFilter } = useAdminPage();
+  const { setTitle, setBadge, setDateFilter, selectedBranchId } = useAdminPage();
   const router = useRouter();
   
-  // Search state
+  const [data, setData] = useState<OrderRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  // Filter state
   const [filters, setFilters] = useState<Record<string, unknown>>({});
+  const [branches, setBranches] = useState<{ label: string; value: string }[]>([]);
 
   useEffect(() => {
     setTitle("Orders");
     setBadge("Website");
-    setDateFilter(""); // Clear date filter from topbar as we use page-level filters here
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setDateFilter(""); 
+  }, [setTitle, setBadge, setDateFilter]);
+
+  useEffect(() => {
+    apiGet<any[]>("/branches/public")
+      .then((res) => {
+        if (Array.isArray(res)) {
+          setBranches(res.map((b) => ({ label: b.name, value: b.id })));
+        }
+      })
+      .catch(() => {});
   }, []);
 
-  // Filter configuration
-  const filterConfigs: FilterConfig[] = [
+  const loadData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const params: Record<string, any> = {};
+
+      const branchToFilter = filters.branch || selectedBranchId;
+      if (branchToFilter) params.branchId = branchToFilter;
+      if (filters.paymentStatus) params.paymentStatus = (filters.paymentStatus as string).toUpperCase();
+      if (filters.status) params.status = (filters.status as string).toUpperCase();
+      if (searchQuery) params.search = searchQuery;
+
+      const dateRange = filters.dateRange as { from?: Date; to?: Date } | undefined;
+      if (dateRange?.from) params.dateFrom = new Date(dateRange.from).toISOString();
+      if (dateRange?.to) params.dateTo = new Date(dateRange.to).toISOString();
+
+      const res = await apiGet<{ data: OrderRecord[] }>("/orders", params);
+      setData(res.data || []);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load orders");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [filters, searchQuery, selectedBranchId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleUpdateStatus = async (orderId: string, status: string) => {
+    try {
+      await apiPatch(`/orders/${orderId}/status`, { status });
+      toast.success(`Order status updated to ${status}`);
+      loadData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update status");
+    }
+  };
+
+  const filterConfigs: FilterConfig[] = useMemo(() => [
     {
       type: "select",
       label: "Branch",
       key: "branch",
-      options: [
-        { label: "Dhaka Main", value: "Dhaka Main" },
-        { label: "Chattogram", value: "Chattogram" },
-        { label: "Sylhet", value: "Sylhet" },
-        { label: "Rajshahi", value: "Rajshahi" },
-      ],
+      options: branches,
     },
     {
       type: "select",
       label: "Payment Status",
       key: "paymentStatus",
       options: [
-        { label: "Paid", value: "Paid" },
-        { label: "Unpaid", value: "Unpaid" },
-        { label: "Due", value: "Due" },
+        { label: "Paid", value: "PAID" },
+        { label: "Due", value: "DUE" },
+        { label: "Pending", value: "PENDING" },
       ],
     },
     {
@@ -54,12 +119,12 @@ export default function OrdersPage() {
       label: "Order Status",
       key: "status",
       options: [
-        { label: "Pending", value: "Pending" },
-        { label: "Confirmed", value: "Confirmed" },
-        { label: "Parcel Booked", value: "Parcel Booked" },
-        { label: "Delivered", value: "Delivered" },
-        { label: "Returned", value: "Returned" },
-        { label: "Cancelled", value: "Cancelled" },
+        { label: "Pending", value: "PENDING" },
+        { label: "Confirmed", value: "CONFIRMED" },
+        { label: "Parcel Booked", value: "PARCEL_BOOKED" },
+        { label: "Delivered", value: "DELIVERED" },
+        { label: "Returned", value: "RETURNED" },
+        { label: "Cancelled", value: "CANCELLED" },
       ],
     },
     {
@@ -67,112 +132,110 @@ export default function OrdersPage() {
       label: "Date Range",
       key: "dateRange",
     },
-  ];
+  ], [branches]);
 
-  // Derived filtered data
-  const filteredData = useMemo(() => {
-    let result = [...mockOrders];
-
-    // Text Search
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (o) =>
-          o.id.toLowerCase().includes(q) ||
-          o.customer.toLowerCase().includes(q)
-      );
-    }
-
-    // Select Filters
-    if (filters.branch) {
-      result = result.filter((o) => o.branch === filters.branch);
-    }
-    if (filters.paymentStatus) {
-      result = result.filter((o) => o.paymentStatus === filters.paymentStatus);
-    }
-    if (filters.status) {
-      result = result.filter((o) => o.status === filters.status);
-    }
-
-    // Date Range Filter (mocked simple comparison)
-    const dateRange = filters.dateRange as { from?: Date; to?: Date } | undefined;
-    if (dateRange?.from) {
-      const from = new Date(dateRange.from).getTime();
-      const to = dateRange.to ? new Date(dateRange.to).getTime() : from;
-      
-      result = result.filter((o) => {
-        const orderTime = new Date(o.date).getTime();
-        return orderTime >= from && orderTime <= to + 86400000; // Add 1 day to include end date fully
-      });
-    }
-
-    return result;
-  }, [searchQuery, filters]);
-
-  // Handle table actions
   const createActions = (): TableAction[] => [
-    { label: "View Details", icon: <Eye className="w-4 h-4" />, onClick: (row) => router.push(`/admin/orders/${row.id.replace('#', '')}`) },
-    { label: "View Invoice", icon: <FileText className="w-4 h-4" />, onClick: (row) => console.log("Invoice", row) },
-    { label: "Mark Delivered", icon: <CheckCircle className="w-4 h-4" />, onClick: (row) => console.log("Delivered", row) },
-    { label: "Edit Order", icon: <Edit className="w-4 h-4" />, onClick: (row) => console.log("Edit", row) },
-    { label: "Delete", icon: <Trash2 className="w-4 h-4" />, onClick: (row) => console.log("Delete", row), variant: "destructive" },
+    {
+      label: "View Details",
+      icon: <Eye className="w-4 h-4" />,
+      onClick: (row) => router.push(`/admin/orders/${row.id}`),
+    },
+    {
+      label: "Mark Confirmed",
+      icon: <CheckCircle className="w-4 h-4 text-blue-600" />,
+      onClick: (row) => handleUpdateStatus(row.id, "CONFIRMED"),
+    },
+    {
+      label: "Mark Delivered",
+      icon: <CheckCircle className="w-4 h-4 text-emerald-600" />,
+      onClick: (row) => handleUpdateStatus(row.id, "DELIVERED"),
+    },
   ];
 
-  // Map status to badge colors
   const getPaymentStatusVariant = (status: string): StatusVariant => {
     switch (status) {
+      case "PAID":
       case "Paid": return "success";
-      case "Unpaid": return "danger";
-      case "Due": return "warning";
+      case "DUE":
+      case "Due": return "danger";
+      case "PENDING":
+      case "Pending": return "warning";
       default: return "info";
     }
   };
 
   const getOrderStatusVariant = (status: string): StatusVariant => {
     switch (status) {
+      case "DELIVERED":
+      case "COMPLETED":
       case "Delivered":
       case "Completed": return "success";
+      case "CONFIRMED":
+      case "PARCEL_BOOKED":
       case "Confirmed":
       case "Parcel Booked": return "info";
+      case "PENDING":
       case "Pending": return "warning";
+      case "RETURNED":
       case "Returned": return "notice";
+      case "CANCELLED":
       case "Cancelled": return "danger";
       default: return "info";
     }
   };
 
-  // Define Columns
-  const columns: ColumnDef<MockOrder>[] = [
+  const columns: ColumnDef<OrderRecord>[] = [
     {
-      accessorKey: "id",
+      accessorKey: "orderCode",
       header: "Order ID",
-      cell: ({ row }) => <span className="font-semibold text-slate-800">{row.original.id}</span>,
+      cell: ({ row }) => (
+        <span 
+          onClick={() => router.push(`/admin/orders/${row.original.id}`)}
+          className="font-semibold text-slate-800 hover:text-emerald-600 cursor-pointer font-mono"
+        >
+          {row.original.orderCode}
+        </span>
+      ),
     },
     {
-      accessorKey: "date",
+      accessorKey: "createdAt",
       header: "Date",
       cell: ({ row }) => {
-        const date = new Date(row.original.date);
-        return <span className="text-slate-600 whitespace-nowrap">{date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}<br/><span className="text-xs text-slate-400">{date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></span>;
-      }
+        const date = new Date(row.original.createdAt);
+        return (
+          <span className="text-slate-600 whitespace-nowrap">
+            {date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}<br/>
+            <span className="text-xs text-slate-400">{date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+          </span>
+        );
+      },
     },
     {
       accessorKey: "branch",
       header: "Branch",
+      cell: ({ row }) => <span className="text-slate-700">{row.original.branch?.name || "Global"}</span>,
     },
     {
       accessorKey: "customer",
       header: "Customer",
-      cell: ({ row }) => <span className="font-medium text-slate-700">{row.original.customer}</span>,
+      cell: ({ row }) => (
+        <span className="font-medium text-slate-700">
+          {row.original.customer?.name || "Walk-in Customer"}
+        </span>
+      ),
     },
     {
       accessorKey: "items",
       header: "Items",
+      cell: ({ row }) => {
+        const count = row.original.items?.reduce((acc, i) => acc + i.quantity, 0) || row.original.items?.length || 0;
+        return <span className="text-slate-600">{count} item{count !== 1 ? "s" : ""}</span>;
+      },
     },
     {
-      accessorKey: "total",
+      accessorKey: "totalAmount",
       header: "Total",
-      cell: ({ row }) => <span className="font-semibold text-slate-800">৳{row.original.total.toLocaleString()}</span>,
+      cell: ({ row }) => <span className="font-semibold text-slate-800">৳{Number(row.original.totalAmount).toLocaleString()}</span>,
     },
     {
       accessorKey: "paymentStatus",
@@ -197,6 +260,7 @@ export default function OrdersPage() {
     {
       accessorKey: "staff",
       header: "Staff",
+      cell: ({ row }) => <span className="text-slate-600">{row.original.staff?.name || "Online / POS"}</span>,
     },
     {
       id: "actions",
@@ -215,7 +279,7 @@ export default function OrdersPage() {
         searchPlaceholder="Search ID, Customer..."
         filters={filterConfigs}
         onSearchChange={(val) => setSearchQuery(val)}
-        onFilterChange={(key, val) => setFilters(prev => ({ ...prev, [key]: val }))}
+        onFilterChange={(key, val) => setFilters((prev) => ({ ...prev, [key]: val }))}
         onReset={() => {
           setSearchQuery("");
           setFilters({});
@@ -224,7 +288,7 @@ export default function OrdersPage() {
 
       <DataTable 
         columns={columns} 
-        data={filteredData} 
+        data={data} 
         pageSize={10}
       />
     </div>

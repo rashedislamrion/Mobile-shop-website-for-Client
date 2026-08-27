@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
-import { Calculator, CheckCircle2, AlertCircle, ChevronRight, Download, PlayCircle } from "lucide-react";
+import { CheckCircle2, AlertCircle, PlayCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { apiGet, apiPost } from "@/lib/api-client";
 
 export default function RunPayrollPage() {
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
@@ -12,26 +13,44 @@ export default function RunPayrollPage() {
   
   const [step, setStep] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [month, setMonth] = useState("2026-09");
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [departmentId, setDepartmentId] = useState("");
+  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
+  const [runResult, setRunResult] = useState<any>(null);
 
   useEffect(() => {
     setTitle("Run Payroll");
     setBadge("Website");
     setDateFilter(""); 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setTitle, setBadge, setDateFilter]);
+
+  useEffect(() => {
+    apiGet<any[]>("/departments")
+      .then((res) => {
+        if (Array.isArray(res)) setDepartments(res);
+      })
+      .catch(() => {});
   }, []);
 
-  const handleRun = () => {
-    setIsProcessing(true);
-    // Simulate processing time
-    setTimeout(() => {
-      setIsProcessing(false);
+  const handleRun = async () => {
+    try {
+      setIsProcessing(true);
+      const res = await apiPost<any>("/payroll/run", {
+        month,
+        departmentId: departmentId || undefined,
+      });
+
+      setRunResult(res);
       setStep(2);
-    }, 2000);
+      toast.success(res.message || "Payroll generated successfully");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to generate payroll");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
-  const handleApprove = () => {
-    toast.success("Payroll approved and payslips generated successfully!");
+  const handleFinish = () => {
     router.push("/admin/hrm/payroll");
   };
 
@@ -54,7 +73,7 @@ export default function RunPayrollPage() {
           <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold border-2 ${step >= 2 ? 'border-emerald-500 bg-white' : 'border-slate-300 bg-slate-100'}`}>
             2
           </div>
-          <span className="text-sm font-semibold">Review & Approve</span>
+          <span className="text-sm font-semibold">Review & Finish</span>
         </div>
       </div>
 
@@ -62,38 +81,43 @@ export default function RunPayrollPage() {
         <div className="bg-white rounded-xl border border-slate-200 p-6 md:p-8 shadow-sm">
           <div className="mb-8">
             <h2 className="text-xl font-bold text-slate-800">Configure Payroll Run</h2>
-            <p className="text-slate-500 mt-1">Select the month and branch to generate salary slips for.</p>
+            <p className="text-slate-500 mt-1">Select the month and optional department to generate salary sheets for.</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
             <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Salary Month</label>
+              <label className="text-sm font-semibold text-slate-700">Salary Month *</label>
               <input 
                 type="month" 
                 value={month}
                 onChange={(e) => setMonth(e.target.value)}
-                className="w-full h-11 px-4 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-shadow"
+                className="w-full h-11 px-4 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
               />
             </div>
             
             <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Branch</label>
-              <select className="w-full h-11 px-4 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none transition-shadow">
-                <option value="all">All Branches (Global)</option>
-                <option value="dhaka">Dhaka Main Branch</option>
-                <option value="ctg">Chattogram Branch</option>
+              <label className="text-sm font-semibold text-slate-700">Department</label>
+              <select 
+                value={departmentId}
+                onChange={(e) => setDepartmentId(e.target.value)}
+                className="w-full h-11 px-4 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none"
+              >
+                <option value="">All Departments (Global)</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
               </select>
             </div>
           </div>
 
-          <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 flex gap-3 mb-8">
-            <AlertCircle className="w-5 h-5 text-blue-600 shrink-0" />
-            <div className="text-sm text-blue-800">
-              <p className="font-semibold mb-1">Pre-run Checklist:</p>
+          <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-4 flex gap-3 mb-8">
+            <AlertCircle className="w-5 h-5 text-emerald-600 shrink-0" />
+            <div className="text-sm text-emerald-900">
+              <p className="font-semibold mb-1">Automated Net Salary Calculation:</p>
               <ul className="list-disc pl-4 space-y-1">
-                <li>Ensure all employee attendance records are finalized.</li>
-                <li>Verify any bonus or deduction adjustments for this month.</li>
-                <li>New employees joined this month will have prorated salaries.</li>
+                <li>Net Salary = Basic Salary + Sum(Configured Allowances) - Deductions</li>
+                <li>Employees who already have a payroll record for this month will be automatically skipped.</li>
+                <li>Generated records will be initialized as PENDING for admin review before payout.</li>
               </ul>
             </div>
           </div>
@@ -108,12 +132,12 @@ export default function RunPayrollPage() {
             <button 
               onClick={handleRun}
               disabled={isProcessing}
-              className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
+              className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-70 text-white font-medium rounded-lg transition-colors"
             >
               {isProcessing ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Processing...
+                  Generating...
                 </>
               ) : (
                 <>
@@ -132,91 +156,40 @@ export default function RunPayrollPage() {
               <div>
                 <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
                   <CheckCircle2 className="w-6 h-6 text-emerald-500" />
-                  Payroll Generated Successfully
+                  Payroll Batch Processed
                 </h2>
-                <p className="text-slate-500 mt-1">Review the summary before final approval.</p>
+                <p className="text-slate-500 mt-1">Review the batch results below.</p>
               </div>
               <div className="text-right">
                 <p className="text-sm text-slate-500 font-medium">Month</p>
-                <p className="text-lg font-bold text-slate-800">September 2026</p>
+                <p className="text-lg font-bold text-slate-800">{month}</p>
               </div>
             </div>
           </div>
 
           <div className="p-6 md:p-8">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-              <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
-                <p className="text-sm text-slate-500 font-medium">Total Employees</p>
-                <p className="text-2xl font-bold text-slate-800 mt-1">42</p>
-              </div>
-              <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
-                <p className="text-sm text-slate-500 font-medium">Basic Salary Total</p>
-                <p className="text-2xl font-bold text-slate-800 mt-1">৳1,245,000</p>
-              </div>
-              <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
-                <p className="text-sm text-slate-500 font-medium">Total Deductions</p>
-                <p className="text-2xl font-bold text-red-600 mt-1">৳12,500</p>
-              </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
               <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
-                <p className="text-sm text-emerald-700 font-medium">Net Payable Total</p>
-                <p className="text-2xl font-bold text-emerald-700 mt-1">৳1,328,500</p>
+                <p className="text-sm text-emerald-700 font-medium">Generated Sheets</p>
+                <p className="text-2xl font-bold text-emerald-800 mt-1">{runResult?.createdCount || 0}</p>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                <p className="text-sm text-slate-500 font-medium">Already Existed / Skipped</p>
+                <p className="text-2xl font-bold text-slate-800 mt-1">{runResult?.skippedCount || 0}</p>
+              </div>
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                <p className="text-sm text-slate-500 font-medium">Status</p>
+                <p className="text-2xl font-bold text-slate-800 mt-1">Pending Approval</p>
               </div>
             </div>
 
-            <div className="border border-slate-200 rounded-lg overflow-hidden mb-8">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-slate-50 border-b border-slate-200">
-                  <tr>
-                    <th className="px-4 py-3 font-semibold text-slate-700">Department</th>
-                    <th className="px-4 py-3 font-semibold text-slate-700 text-right">Employees</th>
-                    <th className="px-4 py-3 font-semibold text-slate-700 text-right">Net Payable</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  <tr>
-                    <td className="px-4 py-3 font-medium text-slate-800">Management</td>
-                    <td className="px-4 py-3 text-slate-600 text-right">4</td>
-                    <td className="px-4 py-3 font-semibold text-slate-800 text-right">৳280,000</td>
-                  </tr>
-                  <tr>
-                    <td className="px-4 py-3 font-medium text-slate-800">Sales</td>
-                    <td className="px-4 py-3 text-slate-600 text-right">18</td>
-                    <td className="px-4 py-3 font-semibold text-slate-800 text-right">৳450,500</td>
-                  </tr>
-                  <tr>
-                    <td className="px-4 py-3 font-medium text-slate-800">Technical/Repair</td>
-                    <td className="px-4 py-3 text-slate-600 text-right">12</td>
-                    <td className="px-4 py-3 font-semibold text-slate-800 text-right">৳425,000</td>
-                  </tr>
-                  <tr className="bg-slate-50/50 font-bold">
-                    <td className="px-4 py-3 text-slate-800">Total</td>
-                    <td className="px-4 py-3 text-slate-800 text-right">42</td>
-                    <td className="px-4 py-3 text-slate-800 text-right">৳1,328,500</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div className="flex justify-between items-center pt-4 border-t border-slate-100">
+            <div className="flex justify-end pt-4 border-t border-slate-100">
               <button 
-                onClick={() => setStep(1)}
-                className="px-4 py-2 text-slate-600 font-medium hover:text-slate-900 transition-colors"
+                onClick={handleFinish}
+                className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors"
               >
-                Back to Configuration
+                Go to Payroll List
               </button>
-              <div className="flex gap-3">
-                <button 
-                  className="flex items-center gap-2 px-5 py-2.5 border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium rounded-lg transition-colors"
-                >
-                  <Download className="w-4 h-4" /> Export Draft (CSV)
-                </button>
-                <button 
-                  onClick={handleApprove}
-                  className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors"
-                >
-                  <CheckCircle2 className="w-5 h-5" /> Approve & Finalize
-                </button>
-              </div>
             </div>
           </div>
         </div>

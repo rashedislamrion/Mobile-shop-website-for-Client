@@ -15,7 +15,7 @@ import {
   ShieldCheck,
   Menu
 } from "lucide-react";
-import { useMockAuth } from "@/context/MockAuthContext";
+import { useAuth } from "@/context/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Sheet,
@@ -41,17 +41,18 @@ const LEGAL_ITEMS = [
 
 export default function AccountLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { customerName } = useMockAuth();
+  const { user, customerName } = useAuth();
+  const displayName = user?.name || customerName || "Customer";
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
       {/* Profile Header */}
       <div className="p-6 border-b border-slate-100 flex flex-col items-center text-center">
         <Avatar className="w-20 h-20 mb-4 border-4 border-slate-50">
-          <AvatarImage src="https://i.pravatar.cc/150?u=a042581f4e29026704d" alt={customerName} />
-          <AvatarFallback className="text-xl font-bold">{customerName?.charAt(0) || "U"}</AvatarFallback>
+          <AvatarImage src="https://i.pravatar.cc/150?u=a042581f4e29026704d" alt={displayName} />
+          <AvatarFallback className="text-xl font-bold">{displayName.charAt(0)}</AvatarFallback>
         </Avatar>
-        <h2 className="text-lg font-bold text-slate-900">{customerName || "Customer"}</h2>
+        <h2 className="text-lg font-bold text-slate-900">{displayName}</h2>
       </div>
 
       {/* Main Nav */}

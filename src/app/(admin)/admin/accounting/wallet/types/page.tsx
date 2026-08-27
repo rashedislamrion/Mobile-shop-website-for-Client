@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
 import { DataTable, ActionDropdown } from "@/components/admin/DataTable";
 import { TableAction } from "@/types/table";
-import { mockWalletTypes, WalletType } from "@/lib/mock-data/accounting/wallet-types";
 import { ColumnDef } from "@tanstack/react-table";
-import { Plus, Edit, Trash2, Eye, Banknote, Building, Smartphone, Wallet as WalletIcon } from "lucide-react";
+import { Plus, Edit, Trash2, Banknote, Building, Smartphone, Wallet as WalletIcon } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -16,144 +15,199 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { useRouter } from "next/navigation";
+import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api-client";
+
+interface WalletTypeRecord {
+  id: string;
+  name: string;
+  kind: "CASH" | "BANK" | "MOBILE_BANKING";
+  currentBalance: number | string;
+  status: string;
+  _count?: { transactions: number; expenses: number; supplierPayments: number };
+}
 
 export default function WalletTypesPage() {
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
-  const [localData, setLocalData] = useState<WalletType[]>(mockWalletTypes);
+  const [data, setData] = useState<WalletTypeRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   
   // Dialog State
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingWallet, setEditingWallet] = useState<WalletType | null>(null);
-  const [formData, setFormData] = useState<Partial<WalletType>>({
+  const [editingWallet, setEditingWallet] = useState<WalletTypeRecord | null>(null);
+  const [formData, setFormData] = useState({
     name: "",
-    type: "Bank",
-    currentBalance: 0,
-    status: "Active"
+    kind: "BANK" as "CASH" | "BANK" | "MOBILE_BANKING",
+    initialBalance: 0,
+    status: "ACTIVE",
   });
-
-  const router = useRouter();
 
   useEffect(() => {
     setTitle("Wallet Types");
     setBadge("Accounting");
     setDateFilter(""); 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setTitle, setBadge, setDateFilter]);
+
+  const loadData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const res = await apiGet<WalletTypeRecord[]>("/wallet-types");
+      setData(Array.isArray(res) ? res : []);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load wallet types");
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
-  const totalBalance = localData.reduce((sum, w) => sum + w.currentBalance, 0);
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
-  const handleSave = () => {
-    if (!formData.name) {
+  const totalBalance = data.reduce((sum, w) => sum + Number(w.currentBalance), 0);
+
+  const handleOpenDialog = (wallet?: WalletTypeRecord) => {
+    if (wallet) {
+      setEditingWallet(wallet);
+      setFormData({
+        name: wallet.name,
+        kind: wallet.kind,
+        initialBalance: Number(wallet.currentBalance),
+        status: wallet.status,
+      });
+    } else {
+      setEditingWallet(null);
+      setFormData({
+        name: "",
+        kind: "BANK",
+        initialBalance: 0,
+        status: "ACTIVE",
+      });
+    }
+    setDialogOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!formData.name.trim()) {
       toast.error("Please enter a wallet name");
       return;
     }
-    
-    if (editingWallet) {
-      setLocalData(prev => prev.map(w => w.id === editingWallet.id ? { ...w, ...formData } as WalletType : w));
-      toast.success("Wallet updated successfully");
-    } else {
-      const newWallet: WalletType = {
-        ...formData,
-        id: `w${Date.now()}`
-      } as WalletType;
-      setLocalData(prev => [...prev, newWallet]);
-      toast.success("Wallet added successfully");
+
+    try {
+      if (editingWallet) {
+        await apiPatch(`/wallet-types/${editingWallet.id}`, {
+          name: formData.name,
+          kind: formData.kind,
+          status: formData.status,
+        });
+        toast.success("Wallet updated successfully");
+      } else {
+        await apiPost("/wallet-types", {
+          name: formData.name,
+          kind: formData.kind,
+          initialBalance: Number(formData.initialBalance || 0),
+          status: formData.status,
+        });
+        toast.success("New wallet created successfully");
+      }
+
+      setDialogOpen(false);
+      loadData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save wallet");
     }
-    
-    setDialogOpen(false);
   };
 
-  const handleDelete = (id: string, balance: number) => {
-    if (balance > 0) {
-      toast.error("Cannot delete wallet with non-zero balance");
-      return;
-    }
-    if (confirm("Are you sure you want to delete this wallet?")) {
-      setLocalData(prev => prev.filter(w => w.id !== id));
-      toast.success("Wallet deleted");
+  const handleDelete = async (id: string) => {
+    try {
+      await apiDelete(`/wallet-types/${id}`);
+      toast.success("Wallet removed successfully");
+      loadData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete wallet");
     }
   };
 
-  const createActions = (row: WalletType): TableAction[] => [
-    { 
-      label: "Edit", 
-      icon: <Edit className="w-4 h-4" />, 
-      onClick: () => {
-        setEditingWallet(row);
-        setFormData(row);
-        setDialogOpen(true);
-      } 
+  const getKindIcon = (kind: string) => {
+    switch (kind) {
+      case "CASH":
+        return <Banknote className="w-5 h-5 text-emerald-600" />;
+      case "BANK":
+        return <Building className="w-5 h-5 text-blue-600" />;
+      case "MOBILE_BANKING":
+        return <Smartphone className="w-5 h-5 text-pink-600" />;
+      default:
+        return <WalletIcon className="w-5 h-5 text-slate-600" />;
+    }
+  };
+
+  const createActions = (): TableAction[] => [
+    {
+      label: "Edit Wallet",
+      icon: <Edit className="w-4 h-4" />,
+      onClick: (row) => handleOpenDialog(row),
     },
-    { 
-      label: "View Transactions", 
-      icon: <Eye className="w-4 h-4" />, 
-      onClick: () => {
-        router.push(`/admin/accounting/wallet/deposit-history?walletId=${row.id}`);
-      } 
-    },
-    { 
-      label: "Delete", 
-      icon: <Trash2 className="w-4 h-4 text-red-500" />, 
-      onClick: () => handleDelete(row.id, row.currentBalance),
-      disabled: row.currentBalance !== 0
+    {
+      label: "Delete",
+      icon: <Trash2 className="w-4 h-4 text-red-500" />,
+      variant: "destructive",
+      onClick: (row) => handleDelete(row.id),
     },
   ];
 
-  const columns: ColumnDef<WalletType>[] = [
+  const columns: ColumnDef<WalletTypeRecord>[] = [
     {
       accessorKey: "name",
       header: "Wallet Name",
-      cell: ({ row }) => {
-        const type = row.original.type;
-        const Icon = type === "Cash" ? Banknote : type === "Bank" ? Building : Smartphone;
-        return (
-          <div className="flex items-center gap-3">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center 
-              ${type === "Cash" ? "bg-emerald-100 text-emerald-600" : 
-                type === "Bank" ? "bg-blue-100 text-blue-600" : "bg-purple-100 text-purple-600"}`}>
-              <Icon className="w-4 h-4" />
-            </div>
-            <span className="font-semibold text-slate-800">{row.original.name}</span>
+      cell: ({ row }) => (
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center">
+            {getKindIcon(row.original.kind)}
           </div>
-        );
-      }
+          <div>
+            <p className="font-semibold text-slate-800">{row.original.name}</p>
+            <p className="text-xs text-slate-400 capitalize">{row.original.kind.replace("_", " ").toLowerCase()}</p>
+          </div>
+        </div>
+      ),
     },
     {
-      accessorKey: "type",
+      accessorKey: "kind",
       header: "Type",
-      cell: ({ row }) => {
-        const t = row.original.type;
-        const color = t === "Cash" ? "text-emerald-700 bg-emerald-50 border-emerald-200" : 
-                      t === "Bank" ? "text-blue-700 bg-blue-50 border-blue-200" : 
-                      "text-purple-700 bg-purple-50 border-purple-200";
-        return <span className={`px-2.5 py-1 rounded-md text-xs font-medium border ${color}`}>{t}</span>;
-      }
+      cell: ({ row }) => (
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
+          {row.original.kind.replace("_", " ")}
+        </span>
+      ),
     },
     {
       accessorKey: "currentBalance",
       header: "Current Balance",
-      cell: ({ row }) => <span className="font-bold text-slate-800">৳{row.original.currentBalance.toLocaleString()}</span>
+      cell: ({ row }) => (
+        <span className="font-bold text-slate-900 text-base">
+          ৳{Number(row.original.currentBalance).toLocaleString()}
+        </span>
+      ),
     },
     {
       accessorKey: "status",
       header: "Status",
-      cell: ({ row }) => (
-        <Switch 
-          checked={row.original.status === "Active"}
-          onCheckedChange={(checked) => {
-            setLocalData(prev => prev.map(w => w.id === row.original.id ? { ...w, status: checked ? "Active" : "Inactive" } : w));
-            toast.success(`Wallet marked as ${checked ? "Active" : "Inactive"}`);
-          }}
-        />
-      )
+      cell: ({ row }) => {
+        const isActive = row.original.status === "ACTIVE";
+        return (
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+            isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"
+          }`}>
+            {isActive ? "Active" : "Inactive"}
+          </span>
+        );
+      },
     },
     {
       id: "actions",
       header: "Action",
       cell: ({ row }) => (
         <div className="flex justify-end">
-          <ActionDropdown actions={createActions(row.original)} rowData={row.original} />
+          <ActionDropdown actions={createActions()} rowData={row.original} />
         </div>
       ),
     },
@@ -162,104 +216,95 @@ export default function WalletTypesPage() {
   return (
     <div className="space-y-6">
       
-      {/* Dialog for Add/Edit */}
+      {/* Top Banner Card: Total Balance */}
+      <div className="bg-gradient-to-r from-emerald-600 to-teal-700 rounded-2xl p-6 text-white shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <span className="text-emerald-100 text-xs font-semibold uppercase tracking-wider">Total Balance Across All Wallets</span>
+          <p className="text-3xl font-bold mt-1">৳{totalBalance.toLocaleString()}</p>
+          <p className="text-emerald-100 text-xs mt-1">{data.length} active payment channels registered</p>
+        </div>
+        <button
+          onClick={() => handleOpenDialog()}
+          className="flex items-center gap-2 bg-white text-emerald-800 hover:bg-emerald-50 px-4 py-2.5 rounded-xl font-semibold text-sm transition-colors"
+        >
+          <Plus className="w-4 h-4" /> Add Wallet Channel
+        </button>
+      </div>
+
+      <DataTable 
+        columns={columns} 
+        data={data} 
+        pageSize={10}
+      />
+
+      {/* Add / Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>{editingWallet ? "Edit Wallet Type" : "Add Wallet Type"}</DialogTitle>
+            <DialogTitle>{editingWallet ? "Edit Wallet" : "Add New Wallet"}</DialogTitle>
           </DialogHeader>
-          <div className="pt-4 space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Wallet Name</label>
-              <Input 
+          <div className="space-y-4 pt-3">
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1.5">Wallet Name *</label>
+              <Input
+                placeholder="e.g. City Bank Primary A/C"
                 value={formData.name}
-                onChange={e => setFormData({ ...formData, name: e.target.value })}
-                placeholder="e.g. Bank - DBBL" 
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               />
             </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Type</label>
-              <select 
-                className="w-full h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                value={formData.type}
-                onChange={e => setFormData({ ...formData, type: e.target.value as any })}
+
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1.5">Wallet Kind *</label>
+              <select
+                value={formData.kind}
+                onChange={(e) => setFormData({ ...formData, kind: e.target.value as any })}
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm"
               >
-                <option value="Cash">Cash</option>
-                <option value="Bank">Bank</option>
-                <option value="Mobile Banking">Mobile Banking</option>
+                <option value="BANK">Bank Account</option>
+                <option value="CASH">Cash Drawer</option>
+                <option value="MOBILE_BANKING">Mobile Banking (bKash / Nagad)</option>
               </select>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Opening Balance (৳)</label>
-              <Input 
-                type="number"
-                value={formData.currentBalance}
-                onChange={e => setFormData({ ...formData, currentBalance: Number(e.target.value) })}
-                disabled={!!editingWallet} // Can only set opening balance on creation
+            {!editingWallet && (
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1.5">Opening Balance (৳)</label>
+                <Input
+                  type="number"
+                  placeholder="0.00"
+                  value={formData.initialBalance}
+                  onChange={(e) => setFormData({ ...formData, initialBalance: Number(e.target.value) })}
+                />
+              </div>
+            )}
+
+            <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
+              <span className="text-sm font-medium text-slate-700">Active Channel</span>
+              <Switch
+                checked={formData.status === "ACTIVE"}
+                onCheckedChange={(c) => setFormData({ ...formData, status: c ? "ACTIVE" : "INACTIVE" })}
               />
-              {editingWallet && <p className="text-xs text-slate-500">Balance can only be modified via transactions.</p>}
             </div>
 
-            <div className="flex items-center justify-between pt-2">
-              <label className="text-sm font-semibold text-slate-700">Status Active</label>
-              <Switch 
-                checked={formData.status === "Active"}
-                onCheckedChange={checked => setFormData({ ...formData, status: checked ? "Active" : "Inactive" })}
-              />
-            </div>
-
-            <div className="flex justify-end gap-3 pt-4">
-              <button 
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
                 onClick={() => setDialogOpen(false)}
-                className="px-4 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium rounded-lg transition-colors text-sm"
+                className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 text-slate-700"
               >
                 Cancel
               </button>
-              <button 
+              <button
+                type="button"
                 onClick={handleSave}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors text-sm"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium"
               >
-                {editingWallet ? "Save Changes" : "Add Wallet"}
+                {editingWallet ? "Save Changes" : "Create Wallet"}
               </button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Summary Card */}
-      <div className="bg-white p-6 rounded-2xl border border-emerald-100 shadow-sm flex items-center gap-4 bg-gradient-to-r from-emerald-50 to-white">
-        <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
-          <WalletIcon className="w-7 h-7" />
-        </div>
-        <div>
-          <p className="text-sm font-medium text-emerald-800/70 mb-1 uppercase tracking-wider">Total Balance Across All Wallets</p>
-          <p className="text-3xl font-extrabold text-emerald-700">৳{totalBalance.toLocaleString()}</p>
-        </div>
-      </div>
-
-      <div className="flex justify-end">
-        <button 
-          onClick={() => {
-            setEditingWallet(null);
-            setFormData({ name: "", type: "Bank", currentBalance: 0, status: "Active" });
-            setDialogOpen(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors text-sm"
-        >
-          <Plus className="w-4 h-4" /> Add Wallet Type
-        </button>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden p-5">
-        <DataTable 
-          columns={columns} 
-          data={localData} 
-          pageSize={10}
-        />
-      </div>
-
     </div>
   );
 }

@@ -2,89 +2,138 @@
 
 import { useEffect, useState } from "react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
-import { FilterBar } from "@/components/admin/FilterBar";
 import { DataTable, StatusBadge } from "@/components/admin/DataTable";
 import { ColoredStatCard } from "@/components/admin/ColoredStatCard";
-import { mockPromoCodes, PromoCodeRecord } from "@/lib/mock-data/marketing/promo-codes";
 import { ColumnDef } from "@tanstack/react-table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Ticket, Copy, CheckCircle2, RotateCcw, Plus, Activity, HandCoins, Edit, Trash2, Power } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Ticket, Copy, RotateCcw, Plus, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api-client";
+import { format } from "date-fns";
+
+export interface PromoCodeRecord {
+  id: string;
+  code: string;
+  discountType: "PERCENTAGE" | "FIXED_AMOUNT";
+  discountValue: number;
+  maxDiscountCap?: number | null;
+  minOrderAmount?: number | null;
+  usageLimit?: number | null;
+  usedCount: number;
+  validFrom: string;
+  validUntil: string;
+  status: "ACTIVE" | "INACTIVE" | "EXPIRED";
+}
 
 export default function PromoCodePage() {
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
-  const [data, setData] = useState<PromoCodeRecord[]>(mockPromoCodes);
+  const [data, setData] = useState<PromoCodeRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const [newPromo, setNewPromo] = useState({
     code: "",
-    discountType: "Percentage" as "Percentage" | "Fixed Amount",
+    discountType: "PERCENTAGE" as "PERCENTAGE" | "FIXED_AMOUNT",
     discountValue: 10,
-    maxCap: "",
-    minOrder: "",
+    maxDiscountCap: "",
+    minOrderAmount: "",
     usageLimit: "",
-    customerLimit: "1",
-    appliesTo: "All Products" as "All Products" | "Specific Category" | "Specific Products",
-    validFrom: "",
-    validUntil: "",
-    status: "Active" as const
+    validFrom: new Date().toISOString().split("T")[0],
+    validUntil: new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
+    status: "ACTIVE" as "ACTIVE" | "INACTIVE",
   });
 
+  const fetchPromoCodes = async () => {
+    setIsLoading(true);
+    try {
+      const res = await apiGet<PromoCodeRecord[]>("/promo-codes");
+      setData(res || []);
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to load promo codes");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    setTitle("Promo Code");
+    setTitle("Promo Codes & Coupons");
     setBadge("Marketing");
-    setDateFilter(""); 
+    setDateFilter("");
+    fetchPromoCodes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleGenerateCode = () => {
-    const randomCode = "PROMO" + Math.random().toString(36).substring(2, 6).toUpperCase();
+    const randomCode = "NOVA" + Math.random().toString(36).substring(2, 6).toUpperCase();
     setNewPromo({ ...newPromo, code: randomCode });
   };
 
-  const handleSavePromo = () => {
+  const handleSavePromo = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!newPromo.code || !newPromo.discountValue) {
-      toast.error("Please fill in the required fields");
+      toast.error("Please fill in code and discount value.");
       return;
     }
-    
-    const promo: PromoCodeRecord = {
-      id: `pc-${Date.now()}`,
-      code: newPromo.code,
-      discountType: newPromo.discountType,
-      discountValue: Number(newPromo.discountValue),
-      maxCap: newPromo.maxCap ? Number(newPromo.maxCap) : undefined,
-      minOrder: newPromo.minOrder ? Number(newPromo.minOrder) : undefined,
-      usageCount: 0,
-      usageLimit: newPromo.usageLimit ? Number(newPromo.usageLimit) : undefined,
-      customerLimit: newPromo.customerLimit ? Number(newPromo.customerLimit) : undefined,
-      appliesTo: newPromo.appliesTo,
-      validFrom: newPromo.validFrom,
-      validUntil: newPromo.validUntil,
-      status: newPromo.status
-    };
-    
-    setData([promo, ...data]);
-    setIsDialogOpen(false);
-    toast.success("Promo code created successfully");
-  };
 
-  const handleDelete = (id: string) => {
-    if (confirm("Delete this promo code?")) {
-      setData(data.filter(p => p.id !== id));
-      toast.success("Promo code deleted");
+    setIsSubmitting(true);
+    try {
+      await apiPost("/promo-codes", {
+        code: newPromo.code.trim().toUpperCase(),
+        discountType: newPromo.discountType,
+        discountValue: Number(newPromo.discountValue),
+        maxDiscountCap: newPromo.maxDiscountCap ? Number(newPromo.maxDiscountCap) : undefined,
+        minOrderAmount: newPromo.minOrderAmount ? Number(newPromo.minOrderAmount) : undefined,
+        usageLimit: newPromo.usageLimit ? Number(newPromo.usageLimit) : undefined,
+        validFrom: new Date(newPromo.validFrom).toISOString(),
+        validUntil: new Date(newPromo.validUntil).toISOString(),
+        status: newPromo.status,
+      });
+      toast.success("Promo code created successfully!");
+      setIsDialogOpen(false);
+      setNewPromo({
+        code: "",
+        discountType: "PERCENTAGE",
+        discountValue: 10,
+        maxDiscountCap: "",
+        minOrderAmount: "",
+        usageLimit: "",
+        validFrom: new Date().toISOString().split("T")[0],
+        validUntil: new Date(Date.now() + 30 * 86400000).toISOString().split("T")[0],
+        status: "ACTIVE",
+      });
+      fetchPromoCodes();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to create promo code");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleToggleStatus = (id: string) => {
-    setData(data.map(p => {
-      if (p.id === id) {
-        return { ...p, status: p.status === "Active" ? "Disabled" : "Active" };
-      }
-      return p;
-    }));
-    toast.success("Status updated");
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this coupon?")) return;
+    try {
+      await apiDelete(`/promo-codes/${id}`);
+      toast.success("Promo code deleted");
+      fetchPromoCodes();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete coupon");
+    }
+  };
+
+  const handleToggleStatus = async (promo: PromoCodeRecord) => {
+    const nextStatus = promo.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+    try {
+      await apiPatch(`/promo-codes/${promo.id}`, { status: nextStatus });
+      toast.success(`Coupon is now ${nextStatus.toLowerCase()}`);
+      setData(data.map((p) => (p.id === promo.id ? { ...p, status: nextStatus } : p)));
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update status");
+    }
   };
 
   const copyToClipboard = (text: string) => {
@@ -92,356 +141,235 @@ export default function PromoCodePage() {
     toast.success(`Copied: ${text}`);
   };
 
+  const activeCount = data.filter((p) => p.status === "ACTIVE").length;
+  const totalUsed = data.reduce((acc, p) => acc + (p.usedCount || 0), 0);
+
   const columns: ColumnDef<PromoCodeRecord>[] = [
     {
       accessorKey: "code",
-      header: "Code",
+      header: "Coupon Code",
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
-          <span className="font-mono font-bold text-slate-800 uppercase px-2 py-1 bg-slate-100 rounded border border-slate-200">
+          <span className="font-mono font-extrabold text-sm text-slate-800 bg-slate-100 px-2 py-0.5 rounded border">
             {row.original.code}
           </span>
-          <button 
+          <button
             onClick={() => copyToClipboard(row.original.code)}
-            className="p-1 text-slate-400 hover:text-emerald-600 transition-colors"
+            className="text-slate-400 hover:text-slate-700"
+            title="Copy Code"
           >
             <Copy className="w-3.5 h-3.5" />
           </button>
         </div>
-      )
+      ),
     },
     {
-      id: "discount",
+      accessorKey: "discountValue",
       header: "Discount",
-      cell: ({ row }) => {
-        const { discountType, discountValue } = row.original;
-        return (
-          <span className="font-bold text-emerald-600">
-            {discountType === "Percentage" ? `${discountValue}% OFF` : `৳${discountValue.toLocaleString()} OFF`}
-          </span>
-        );
-      }
-    },
-    {
-      accessorKey: "minOrder",
-      header: "Min. Order",
-      cell: ({ row }) => row.original.minOrder ? `৳${row.original.minOrder.toLocaleString()}` : <span className="text-slate-400">—</span>
-    },
-    {
-      id: "usage",
-      header: "Usage",
-      cell: ({ row }) => {
-        const { usageCount, usageLimit } = row.original;
-        const limitStr = usageLimit ? usageLimit.toLocaleString() : "∞";
-        const percent = usageLimit ? Math.min((usageCount / usageLimit) * 100, 100) : 0;
-        
-        return (
-          <div className="w-24">
-            <div className="text-xs font-medium text-slate-600 mb-1">{usageCount.toLocaleString()} / {limitStr}</div>
-            {usageLimit && (
-              <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                <div 
-                  className={`h-full rounded-full ${percent >= 90 ? "bg-rose-500" : percent >= 75 ? "bg-amber-500" : "bg-emerald-500"}`}
-                  style={{ width: `${percent}%` }}
-                />
-              </div>
-            )}
-          </div>
-        );
-      }
-    },
-    {
-      id: "validPeriod",
-      header: "Valid Period",
       cell: ({ row }) => (
-        <div className="flex flex-col text-xs text-slate-600">
-          <span>{row.original.validFrom} to</span>
-          <span>{row.original.validUntil}</span>
-        </div>
-      )
+        <span className="font-bold text-emerald-600">
+          {row.original.discountType === "PERCENTAGE"
+            ? `${row.original.discountValue}%`
+            : `৳${Number(row.original.discountValue).toLocaleString()}`}
+          {row.original.maxDiscountCap && (
+            <span className="text-[11px] text-slate-400 block font-normal">
+              Max Cap: ৳{Number(row.original.maxDiscountCap).toLocaleString()}
+            </span>
+          )}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "minOrderAmount",
+      header: "Min Order",
+      cell: ({ row }) => (
+        <span className="text-xs text-slate-600">
+          {row.original.minOrderAmount ? `৳${Number(row.original.minOrderAmount).toLocaleString()}` : "No min"}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "usedCount",
+      header: "Redemptions",
+      cell: ({ row }) => (
+        <span className="text-xs font-semibold text-slate-700">
+          {row.original.usedCount} {row.original.usageLimit ? `/ ${row.original.usageLimit}` : ""}
+        </span>
+      ),
+    },
+    {
+      id: "validity",
+      header: "Validity Period",
+      cell: ({ row }) => (
+        <span className="text-xs text-slate-500">
+          {format(new Date(row.original.validFrom), "MMM d")} - {format(new Date(row.original.validUntil), "MMM d, yyyy")}
+        </span>
+      ),
     },
     {
       accessorKey: "status",
       header: "Status",
       cell: ({ row }) => {
         const s = row.original.status;
-        const type = s === "Active" ? "success" : s === "Scheduled" ? "info" : s === "Disabled" ? "warning" : "neutral";
+        const type = s === "ACTIVE" ? "success" : s === "EXPIRED" ? "neutral" : "warning";
         return <StatusBadge status={s} type={type as any} />;
-      }
+      },
     },
     {
       id: "actions",
-      header: "Action",
+      header: "Actions",
       cell: ({ row }) => (
-        <div className="flex items-center gap-2">
-          <button className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors" title="Edit">
-            <Edit className="w-4 h-4" />
-          </button>
-          <button 
-            onClick={() => handleToggleStatus(row.original.id)}
-            className="p-1.5 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors" 
-            title={row.original.status === "Disabled" ? "Activate" : "Deactivate"}
+        <div className="flex items-center gap-1.5 justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleToggleStatus(row.original)}
+            className="text-xs text-slate-600"
           >
-            <Power className="w-4 h-4" />
-          </button>
-          <button 
+            {row.original.status === "ACTIVE" ? "Disable" : "Enable"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => handleDelete(row.original.id)}
-            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
-            title="Delete"
+            className="text-slate-400 hover:text-danger"
           >
             <Trash2 className="w-4 h-4" />
-          </button>
+          </Button>
         </div>
-      )
-    }
+      ),
+    },
   ];
 
   return (
     <div className="space-y-6">
-      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <ColoredStatCard 
-          icon={<Activity className="w-5 h-5" />}
-          label="Active Codes"
-          value={data.filter(p => p.status === "Active").length.toString()}
-          colorTint="emerald"
-        />
-        <ColoredStatCard 
-          icon={<RotateCcw className="w-5 h-5" />}
-          label="Total Redemptions"
-          value={data.reduce((sum, p) => sum + p.usageCount, 0).toLocaleString()}
-          colorTint="blue"
-        />
-        <ColoredStatCard 
-          icon={<HandCoins className="w-5 h-5" />}
-          label="Total Discount Given"
-          value={`৳${(45000).toLocaleString()}`} // Mock static value
-          colorTint="orange"
-        />
+      {/* Stat Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <ColoredStatCard label="Total Coupons" value={data.length.toString()} icon={<Ticket className="w-5 h-5" />} colorTint="blue" />
+        <ColoredStatCard label="Active Promos" value={activeCount.toString()} icon={<Ticket className="w-5 h-5" />} colorTint="green" />
+        <ColoredStatCard label="Total Redemptions" value={totalUsed.toString()} icon={<Ticket className="w-5 h-5" />} colorTint="yellow" />
       </div>
 
-      <div className="flex justify-end">
-        <button 
-          onClick={() => setIsDialogOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors text-sm shadow-sm"
-        >
-          <Plus className="w-4 h-4" /> Create Promo Code
-        </button>
+      <div className="flex justify-between items-center bg-white p-4 rounded-xl border shadow-sm">
+        <div>
+          <h2 className="text-base font-bold text-slate-800">Coupon Code Manager</h2>
+          <p className="text-xs text-slate-500">Create and manage discounts and promotional coupon codes</p>
+        </div>
+        <Button onClick={() => setIsDialogOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs">
+          <Plus className="w-4 h-4 mr-1.5" /> Create Promo Code
+        </Button>
       </div>
 
-      <FilterBar 
-        onSearch={() => {}}
-        onReset={() => {}}
-        searchPlaceholder="Search code..."
-        filters={[
-          {
-            key: "status",
-            label: "Status",
-            type: "select",
-            options: ["Active", "Scheduled", "Expired", "Disabled"]
-          },
-          {
-            key: "discountType",
-            label: "Discount Type",
-            type: "select",
-            options: ["Percentage", "Fixed Amount"]
-          }
-        ]}
-      />
+      <div className="bg-white border rounded-xl shadow-sm">
+        <DataTable columns={columns} data={data} isLoading={isLoading} />
+      </div>
 
-      <DataTable 
-        columns={columns}
-        data={data}
-        pageSize={10}
-      />
-
+      {/* Create Promo Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Create Promo Code</DialogTitle>
+            <DialogTitle>Create New Promo Code</DialogTitle>
           </DialogHeader>
-          <div className="pt-4 space-y-5">
-            
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Code *</label>
-              <div className="flex gap-2">
-                <Input 
-                  placeholder="e.g. EASTER20" 
-                  value={newPromo.code}
-                  onChange={e => setNewPromo({ ...newPromo, code: e.target.value.toUpperCase() })}
-                  className="font-mono uppercase"
-                />
-                <button 
+          <form onSubmit={handleSavePromo} className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <div className="flex justify-between items-center">
+                <label className="text-xs font-bold text-slate-700">Coupon Code *</label>
+                <button
+                  type="button"
                   onClick={handleGenerateCode}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-md transition-colors text-sm shrink-0"
+                  className="text-xs text-emerald-600 hover:underline flex items-center gap-1 font-semibold"
                 >
-                  Generate
+                  <RotateCcw className="w-3 h-3" /> Auto-Generate
                 </button>
               </div>
+              <Input
+                placeholder="e.g. SUMMER2026"
+                value={newPromo.code}
+                onChange={(e) => setNewPromo({ ...newPromo, code: e.target.value.toUpperCase() })}
+                required
+                className="font-mono font-bold"
+              />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Discount Type *</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-                    <input 
-                      type="radio" 
-                      name="discountType" 
-                      value="Percentage"
-                      checked={newPromo.discountType === "Percentage"}
-                      onChange={() => setNewPromo({ ...newPromo, discountType: "Percentage" })}
-                      className="text-emerald-600 focus:ring-emerald-500"
-                    /> Percentage
-                  </label>
-                  <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-                    <input 
-                      type="radio" 
-                      name="discountType" 
-                      value="Fixed Amount"
-                      checked={newPromo.discountType === "Fixed Amount"}
-                      onChange={() => setNewPromo({ ...newPromo, discountType: "Fixed Amount" })}
-                      className="text-emerald-600 focus:ring-emerald-500"
-                    /> Fixed Amount
-                  </label>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Discount Value *</label>
-                <Input 
-                  type="number"
-                  placeholder={newPromo.discountType === "Percentage" ? "20" : "500"} 
-                  value={newPromo.discountValue}
-                  onChange={e => setNewPromo({ ...newPromo, discountValue: Number(e.target.value) })}
-                />
-              </div>
-            </div>
-
-            {newPromo.discountType === "Percentage" && (
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Max Discount Cap (Optional)</label>
-                <Input 
-                  type="number"
-                  placeholder="e.g. 500" 
-                  value={newPromo.maxCap}
-                  onChange={e => setNewPromo({ ...newPromo, maxCap: e.target.value })}
-                />
-              </div>
-            )}
-
-            {/* Live Preview Text */}
-            {newPromo.code && newPromo.discountValue ? (
-              <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 text-sm text-emerald-800 flex items-start gap-2">
-                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                <div>
-                  <span className="font-semibold block mb-1">Customer sees:</span>
-                  <span>
-                    &quot;<span className="font-mono font-bold">{newPromo.code}</span> — Get {newPromo.discountType === "Percentage" ? `${newPromo.discountValue}%` : `৳${newPromo.discountValue}`} off
-                    {newPromo.maxCap && newPromo.discountType === "Percentage" ? `, up to ৳${newPromo.maxCap}` : ""}
-                    {newPromo.minOrder ? ` on orders above ৳${newPromo.minOrder}` : ""}
-                    &quot;
-                  </span>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-4 border-t border-slate-100">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Min. Order Amount (Optional)</label>
-                <Input 
-                  type="number"
-                  placeholder="e.g. 1000" 
-                  value={newPromo.minOrder}
-                  onChange={e => setNewPromo({ ...newPromo, minOrder: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Total Usage Limit (Optional)</label>
-                <Input 
-                  type="number"
-                  placeholder="e.g. 100" 
-                  value={newPromo.usageLimit}
-                  onChange={e => setNewPromo({ ...newPromo, usageLimit: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Per-Customer Limit (Optional)</label>
-                <Input 
-                  type="number"
-                  placeholder="e.g. 1" 
-                  value={newPromo.customerLimit}
-                  onChange={e => setNewPromo({ ...newPromo, customerLimit: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Applicable To</label>
-                <select 
-                  className="w-full h-10 px-3 bg-white border border-slate-200 rounded-md text-sm outline-none focus:border-emerald-500"
-                  value={newPromo.appliesTo}
-                  onChange={e => setNewPromo({ ...newPromo, appliesTo: e.target.value as any })}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">Discount Type</label>
+                <Select
+                  value={newPromo.discountType}
+                  onValueChange={(val: any) => setNewPromo({ ...newPromo, discountType: val })}
                 >
-                  <option value="All Products">All Products</option>
-                  <option value="Specific Category">Specific Category</option>
-                  <option value="Specific Products">Specific Products</option>
-                </select>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PERCENTAGE">Percentage (%)</SelectItem>
+                    <SelectItem value="FIXED_AMOUNT">Fixed Amount (৳)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">Discount Value *</label>
+                <Input
+                  type="number"
+                  placeholder="10"
+                  value={newPromo.discountValue}
+                  onChange={(e) => setNewPromo({ ...newPromo, discountValue: Number(e.target.value) })}
+                  required
+                />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Valid From</label>
-                <Input 
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">Max Discount Cap (৳)</label>
+                <Input
+                  type="number"
+                  placeholder="Optional max cap"
+                  value={newPromo.maxDiscountCap}
+                  onChange={(e) => setNewPromo({ ...newPromo, maxDiscountCap: e.target.value })}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">Min Order Amount (৳)</label>
+                <Input
+                  type="number"
+                  placeholder="Optional min order"
+                  value={newPromo.minOrderAmount}
+                  onChange={(e) => setNewPromo({ ...newPromo, minOrderAmount: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">Valid From</label>
+                <Input
                   type="date"
                   value={newPromo.validFrom}
-                  onChange={e => setNewPromo({ ...newPromo, validFrom: e.target.value })}
+                  onChange={(e) => setNewPromo({ ...newPromo, validFrom: e.target.value })}
+                  required
                 />
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Valid Until</label>
-                <Input 
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">Valid Until</label>
+                <Input
                   type="date"
                   value={newPromo.validUntil}
-                  onChange={e => setNewPromo({ ...newPromo, validUntil: e.target.value })}
+                  onChange={(e) => setNewPromo({ ...newPromo, validUntil: e.target.value })}
+                  required
                 />
               </div>
             </div>
-            
-            <div className="flex items-center gap-3 pt-2">
-              <label className="text-sm font-semibold text-slate-700">Status:</label>
-              <select 
-                className="h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm outline-none focus:border-emerald-500"
-                value={newPromo.status}
-                onChange={e => setNewPromo({ ...newPromo, status: e.target.value as any })}
-              >
-                <option value="Active">Active</option>
-                <option value="Scheduled">Scheduled</option>
-                <option value="Disabled">Disabled</option>
-              </select>
-            </div>
 
-            <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-              <button 
-                onClick={() => setIsDialogOpen(false)}
-                className="px-4 py-2 text-slate-600 hover:bg-slate-100 font-medium rounded-lg transition-colors text-sm"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleSavePromo}
-                className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors text-sm shadow-sm"
-              >
-                Create Code
-              </button>
-            </div>
-
-          </div>
+            <Button type="submit" disabled={isSubmitting} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold">
+              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save Coupon"}
+            </Button>
+          </form>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }

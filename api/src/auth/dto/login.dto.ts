@@ -1,12 +1,12 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class LoginDto {
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   emailOrPhone?: string; // used for customer
 
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   email?: string; // used for staff
 
   @IsString()

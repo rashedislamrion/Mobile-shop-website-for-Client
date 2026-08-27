@@ -1,32 +1,60 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { apiGet } from "@/lib/api-client";
+import { Skeleton } from "@/components/ui/skeleton";
+
 export default function PrivacyPage() {
+  const [pageData, setPageData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await apiGet<any>("/pages/privacy-policy");
+        setPageData(data);
+      } catch (e) {
+        // Use fallback
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+  }, []);
+
+  if (isLoading) {
+    return (
+      <div className="container mx-auto px-4 py-16 max-w-4xl space-y-4">
+        <Skeleton className="h-10 w-1/3" />
+        <Skeleton className="h-64 w-full rounded-2xl" />
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto px-4 py-16 max-w-4xl">
-      <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-8 tracking-tight">Privacy Policy</h1>
+      <h1 className="text-3xl md:text-4xl font-bold text-slate-900 mb-8 tracking-tight">
+        {pageData?.title || "Privacy Policy"}
+      </h1>
       <div className="prose prose-slate max-w-none bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
-        <p className="text-slate-600 leading-relaxed mb-6">
-          Your privacy is important to us. It is NovaMobile&apos;s policy to respect your privacy regarding any information we may collect from you across our website. We ask for personal information only when we truly need it to provide a service to you.
-        </p>
-        
-        <h3 className="text-xl font-bold text-slate-800 mt-8 mb-4">1. Information We Collect</h3>
-        <p className="text-slate-600 leading-relaxed mb-6">
-          We collect information from you when you register on our site, place an order, subscribe to our newsletter, respond to a survey or fill out a form. When ordering or registering on our site, as appropriate, you may be asked to enter your: name, e-mail address, mailing address, phone number or credit card information.
-        </p>
-        
-        <h3 className="text-xl font-bold text-slate-800 mt-8 mb-4">2. How We Use Your Information</h3>
-        <p className="text-slate-600 leading-relaxed mb-6">
-          Any of the information we collect from you may be used in one of the following ways:
-          <ul className="list-disc pl-5 mt-2 space-y-1">
-            <li>To personalize your experience (your information helps us to better respond to your individual needs)</li>
-            <li>To improve our website (we continually strive to improve our website offerings based on the information and feedback we receive from you)</li>
-            <li>To improve customer service (your information helps us to more effectively respond to your customer service requests and support needs)</li>
-            <li>To process transactions</li>
-          </ul>
-        </p>
-        
-        <h3 className="text-xl font-bold text-slate-800 mt-8 mb-4">3. Data Protection</h3>
-        <p className="text-slate-600 leading-relaxed mb-6">
-          We implement a variety of security measures to maintain the safety of your personal information when you place an order or enter, submit, or access your personal information. We offer the use of a secure server. All supplied sensitive/credit information is transmitted via Secure Socket Layer (SSL) technology and then encrypted into our Payment gateway providers database only to be accessible by those authorized with special access rights to such systems.
-        </p>
+        {pageData?.content ? (
+          <div dangerouslySetInnerHTML={{ __html: pageData.content }} />
+        ) : (
+          <>
+            <p className="text-slate-600 leading-relaxed mb-6">
+              At NovaMobile, we are committed to safeguarding the privacy and security of our customers and site visitors. This Privacy Policy details how we collect, store, and utilize your personal information when you visit our store or place an order.
+            </p>
+            
+            <h3 className="text-xl font-bold text-slate-800 mt-8 mb-4">1. Information We Collect</h3>
+            <p className="text-slate-600 leading-relaxed mb-6">
+              When you purchase an item, register an account, or contact support, we collect contact details including your name, delivery address, phone number, and email. This data is exclusively used for order fulfillment, parcel tracking, and warranty validation.
+            </p>
+            
+            <h3 className="text-xl font-bold text-slate-800 mt-8 mb-4">2. Payment Data Security</h3>
+            <p className="text-slate-600 leading-relaxed mb-6">
+              NovaMobile never stores your credit card, debit card, or mobile banking PINs on our servers. All digital payments are processed through secure, bank-grade encrypted gateways (bKash and SSLCommerz).
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

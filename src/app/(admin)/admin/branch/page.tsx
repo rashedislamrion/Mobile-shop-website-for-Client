@@ -1,86 +1,127 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
 import { FilterBar } from "@/components/admin/FilterBar";
 import { DataTable, StatusBadge, ActionDropdown } from "@/components/admin/DataTable";
 import { FilterConfig, TableAction } from "@/types/table";
-import { mockBranches, Branch } from "@/lib/mock-data/branches";
 import { ColumnDef } from "@tanstack/react-table";
-import { Store, Edit2, Users, CheckCircle, XCircle, Trash2, Plus } from "lucide-react";
-import Image from "next/image";
+import { Store, Edit2, Users, Trash2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { apiGet, apiDelete } from "@/lib/api-client";
+import { Skeleton } from "@/components/ui/skeleton";
+
+export interface BranchRow {
+  id: string;
+  name: string;
+  code: string;
+  type: "OUTLET" | "WAREHOUSE" | "HEAD_OFFICE";
+  address: string;
+  city: string;
+  phone: string;
+  altPhone?: string | null;
+  email?: string | null;
+  status: "ACTIVE" | "INACTIVE";
+  manager?: { id: string; name: string; email?: string; phone?: string } | null;
+  _count?: { staff: number; orders: number };
+}
 
 export default function BranchListPage() {
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
   const router = useRouter();
   
+  const [branches, setBranches] = useState<BranchRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [filters, setFilters] = useState<Record<string, unknown>>({});
+
+  const fetchBranches = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const data = await apiGet<BranchRow[]>("/branches");
+      setBranches(data || []);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load branches");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     setTitle("Branches");
     setBadge("Website");
     setDateFilter(""); 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    fetchBranches();
+  }, [setTitle, setBadge, setDateFilter, fetchBranches]);
 
-  const filterConfigs: FilterConfig[] = [
+  const filterConfigs: FilterConfig[] = useMemo(() => [
     {
       type: "select",
       label: "Status",
       key: "status",
       options: [
-        { label: "Active", value: "Active" },
-        { label: "Inactive", value: "Inactive" },
+        { label: "Active", value: "ACTIVE" },
+        { label: "Inactive", value: "INACTIVE" },
       ],
+    },
+    {
+      type: "select",
+      label: "Type",
+      key: "type",
+      options: [
+        { label: "Outlet", value: "OUTLET" },
+        { label: "Warehouse", value: "WAREHOUSE" },
+        { label: "Head Office", value: "HEAD_OFFICE" },
+      ],
+    },
+  ], []);
+
+  const filteredData = useMemo(() => {
+    return branches.filter((o) => {
+      let match = true;
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        match = match && (o.name.toLowerCase().includes(q) || o.code.toLowerCase().includes(q) || o.city.toLowerCase().includes(q));
+      }
+      if (filters.status) {
+        match = match && o.status === filters.status;
+      }
+      if (filters.type) {
+        match = match && o.type === filters.type;
+      }
+      return match;
+    });
+  }, [branches, searchQuery, filters]);
+
+  const handleDelete = async (row: BranchRow) => {
+    if (!confirm(`Are you sure you want to delete branch "${row.name}"?`)) return;
+
+    try {
+      await apiDelete(`/branches/${row.id}`);
+      toast.success(`Branch "${row.name}" deleted successfully!`);
+      await fetchBranches();
+    } catch (err: any) {
+      toast.error(err.message || "Cannot delete branch with assigned staff or orders");
+    }
+  };
+
+  const createActions = (row: BranchRow): TableAction[] => [
+    { 
+      label: "Edit", 
+      icon: <Edit2 className="w-4 h-4" />, 
+      onClick: () => router.push(`/admin/branch/${row.id}/edit`)
+    },
+    { 
+      label: "Delete", 
+      icon: <Trash2 className="w-4 h-4 text-red-500" />, 
+      variant: "destructive", 
+      onClick: () => handleDelete(row) 
     },
   ];
 
-  const filteredData = mockBranches.filter((o) => {
-    let match = true;
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      match = match && (o.name.toLowerCase().includes(q) || o.code.toLowerCase().includes(q));
-    }
-    if (filters.status) {
-      match = match && o.status === filters.status;
-    }
-    return match;
-  });
-
-  const createActions = (row: Branch): TableAction[] => {
-    const isActive = row.status === "Active";
-    return [
-      { 
-        label: "Edit", 
-        icon: <Edit2 className="w-4 h-4" />, 
-        onClick: () => router.push(`/admin/branch/${row.id}/edit`)
-      },
-      { 
-        label: "View Staff", 
-        icon: <Users className="w-4 h-4" />, 
-        onClick: () => toast.info(`Viewing staff for ${row.name}`)
-      },
-      { 
-        label: isActive ? "Deactivate" : "Activate", 
-        icon: isActive ? <XCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />, 
-        onClick: () => toast.success(`Branch ${isActive ? 'deactivated' : 'activated'}`)
-      },
-      { 
-        label: "Delete", 
-        icon: <Trash2 className="w-4 h-4 text-red-500" />, 
-        variant: "destructive", 
-        disabled: row.staffCount > 0,
-        disabledTooltip: "Cannot delete branch with active staff",
-        onClick: () => toast.error("Branch deleted") 
-      },
-    ];
-  };
-
-  const columns: ColumnDef<Branch>[] = [
+  const columns: ColumnDef<BranchRow>[] = [
     {
       accessorKey: "name",
       header: "Branch Name",
@@ -100,49 +141,47 @@ export default function BranchListPage() {
       accessorKey: "address",
       header: "Address",
       cell: ({ row }) => (
-        <div className="max-w-[200px]" title={row.original.address}>
-          <p className="text-slate-700 truncate">{row.original.address.split('\n')[0]}</p>
-          <p className="text-xs text-slate-500">{row.original.city}</p>
+        <div className="max-w-[220px]" title={row.original.address}>
+          <p className="text-slate-700 truncate">{row.original.address}</p>
+          <p className="text-xs text-slate-500 font-medium">{row.original.city}</p>
         </div>
       )
     },
     {
-      accessorKey: "managerName",
+      accessorKey: "manager",
       header: "Branch Manager",
       cell: ({ row }) => {
-        if (!row.original.managerName) {
+        const manager = row.original.manager;
+        if (!manager) {
           return <span className="text-slate-400 italic text-sm">Unassigned</span>;
         }
         return (
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-full overflow-hidden bg-slate-100 shrink-0 relative">
-              {row.original.managerAvatar ? (
-                <Image src={row.original.managerAvatar} alt="Manager" fill className="object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center bg-slate-200 text-slate-500 text-xs font-medium">
-                  {row.original.managerName.charAt(0)}
-                </div>
-              )}
+            <div className="w-7 h-7 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-semibold">
+              {manager.name.charAt(0)}
             </div>
-            <span className="text-sm font-medium text-slate-700">{row.original.managerName}</span>
+            <span className="text-sm font-medium text-slate-700">{manager.name}</span>
           </div>
         );
       }
     },
     {
-      accessorKey: "contactNumber",
+      accessorKey: "phone",
       header: "Contact",
-      cell: ({ row }) => <span className="text-slate-600 font-medium">{row.original.contactNumber}</span>
+      cell: ({ row }) => <span className="text-slate-600 font-medium text-sm">{row.original.phone}</span>
     },
     {
       accessorKey: "staffCount",
       header: "Staff",
-      cell: ({ row }) => (
-        <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-100 px-2 py-1 rounded-md w-fit text-slate-600">
-          <Users className="w-3.5 h-3.5" />
-          <span className="font-semibold text-sm">{row.original.staffCount}</span>
-        </div>
-      )
+      cell: ({ row }) => {
+        const staffCount = row.original._count?.staff ?? 0;
+        return (
+          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-md w-fit text-slate-700">
+            <Users className="w-3.5 h-3.5 text-slate-500" />
+            <span className="font-semibold text-sm">{staffCount}</span>
+          </div>
+        );
+      }
     },
     {
       accessorKey: "status",
@@ -150,7 +189,7 @@ export default function BranchListPage() {
       cell: ({ row }) => (
         <StatusBadge 
           status={row.original.status} 
-          type={row.original.status === "Active" ? "success" : "neutral"} 
+          type={row.original.status === "ACTIVE" ? "success" : "neutral"} 
         />
       ),
     },
@@ -167,7 +206,11 @@ export default function BranchListPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-end gap-3">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800">Branches & Outlets</h2>
+          <p className="text-xs text-slate-500">Manage all store locations and warehouses</p>
+        </div>
         <Link 
           href="/admin/branch/create" 
           className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors text-sm"
@@ -177,7 +220,7 @@ export default function BranchListPage() {
       </div>
 
       <FilterBar 
-        searchPlaceholder="Search branch name, code..."
+        searchPlaceholder="Search branch name, code, city..."
         filters={filterConfigs}
         onSearchChange={(val) => setSearchQuery(val)}
         onFilterChange={(key, val) => setFilters(prev => ({ ...prev, [key]: val }))}
@@ -187,11 +230,20 @@ export default function BranchListPage() {
         }}
       />
 
-      <DataTable 
-        columns={columns} 
-        data={filteredData} 
-        pageSize={10}
-      />
+      {isLoading ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-14 w-full" />
+          <Skeleton className="h-14 w-full" />
+          <Skeleton className="h-14 w-full" />
+        </div>
+      ) : (
+        <DataTable 
+          columns={columns} 
+          data={filteredData} 
+          pageSize={10}
+        />
+      )}
     </div>
   );
 }

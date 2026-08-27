@@ -2,273 +2,290 @@
 
 import { useEffect, useState } from "react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
-import { mockBanners, BannerRecord } from "@/lib/mock-data/marketing/banners";
-import { Plus, GripVertical, Image as ImageIcon, Link, ArrowUp, ArrowDown, Edit2, Trash2 } from "lucide-react";
+import { Plus, ArrowUp, ArrowDown, Trash2, Loader2, Image as ImageIcon, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
-import { StatusBadge } from "@/components/admin/DataTable";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import Image from "next/image";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { apiGet, apiPost, apiPatch, apiDelete, getImageUrl } from "@/lib/api-client";
+import { Skeleton } from "@/components/ui/skeleton";
+
+export interface BannerRecord {
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  imageUrl: string;
+  linkUrl?: string | null;
+  position: number;
+  status: "ACTIVE" | "INACTIVE";
+}
 
 export default function BannersPage() {
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
-  
-  // Sort banners by position initially
-  const [banners, setBanners] = useState<BannerRecord[]>([...mockBanners].sort((a, b) => a.position - b.position));
+  const [banners, setBanners] = useState<BannerRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const [newBanner, setNewBanner] = useState({
     title: "",
+    subtitle: "",
     linkUrl: "",
-    status: "Active" as const,
-    imageFile: null as File | null,
-    previewUrl: ""
+    imageUrl: "",
+    status: "ACTIVE" as "ACTIVE" | "INACTIVE",
   });
+
+  const fetchBanners = async () => {
+    setIsLoading(true);
+    try {
+      const data = await apiGet<BannerRecord[]>("/banners");
+      setBanners(data || []);
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to load banners");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     setTitle("Promotional Banners");
     setBadge("Marketing");
-    setDateFilter(""); 
+    setDateFilter("");
+    fetchBanners();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleMoveUp = (index: number) => {
-    if (index === 0) return;
+  const handleMove = async (index: number, direction: "up" | "down") => {
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= banners.length) return;
+
     const newBanners = [...banners];
     const temp = newBanners[index];
-    newBanners[index] = newBanners[index - 1];
-    newBanners[index - 1] = temp;
-    
-    // Update positions
-    newBanners.forEach((b, i) => b.position = i + 1);
-    setBanners(newBanners);
-    toast.success("Banner moved up");
-  };
+    newBanners[index] = newBanners[targetIndex];
+    newBanners[targetIndex] = temp;
 
-  const handleMoveDown = (index: number) => {
-    if (index === banners.length - 1) return;
-    const newBanners = [...banners];
-    const temp = newBanners[index];
-    newBanners[index] = newBanners[index + 1];
-    newBanners[index + 1] = temp;
-    
-    // Update positions
-    newBanners.forEach((b, i) => b.position = i + 1);
+    const bannerIds = newBanners.map((b) => b.id);
     setBanners(newBanners);
-    toast.success("Banner moved down");
-  };
 
-  const handleDelete = (id: string) => {
-    if (confirm("Are you sure you want to delete this banner?")) {
-      const filtered = banners.filter(b => b.id !== id);
-      filtered.forEach((b, i) => b.position = i + 1);
-      setBanners(filtered);
-      toast.success("Banner deleted");
+    try {
+      await apiPatch("/banners/reorder", { bannerIds });
+      toast.success("Banner reordered");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to reorder");
+      fetchBanners();
     }
   };
 
-  const handleToggleStatus = (id: string) => {
-    setBanners(banners.map(b => b.id === id ? { ...b, status: b.status === "Active" ? "Inactive" : "Active" } : b));
-    toast.success("Status updated");
-  };
-
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setNewBanner({
-        ...newBanner,
-        imageFile: file,
-        previewUrl: URL.createObjectURL(file)
-      });
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this banner?")) return;
+    try {
+      await apiDelete(`/banners/${id}`);
+      toast.success("Banner deleted successfully");
+      fetchBanners();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete banner");
     }
   };
 
-  const handleAddBanner = () => {
-    if (!newBanner.imageFile && !newBanner.previewUrl) {
-      toast.error("Please select an image");
+  const handleToggleStatus = async (banner: BannerRecord) => {
+    const nextStatus = banner.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+    try {
+      await apiPatch(`/banners/${banner.id}`, { status: nextStatus });
+      toast.success(`Banner is now ${nextStatus.toLowerCase()}`);
+      setBanners(banners.map((b) => (b.id === banner.id ? { ...b, status: nextStatus } : b)));
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update status");
+    }
+  };
+
+  const handleAddBanner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newBanner.title.trim() || !newBanner.imageUrl.trim()) {
+      toast.error("Please enter a title and image URL.");
       return;
     }
-    
-    const banner: BannerRecord = {
-      id: `bn-${Date.now()}`,
-      image: newBanner.previewUrl || "https://placehold.co/1600x600/f1f5f9/94a3b8?text=New+Banner",
-      title: newBanner.title || "Untitled Banner",
-      linkUrl: newBanner.linkUrl || "/",
-      position: banners.length + 1,
-      status: newBanner.status
-    };
 
-    setBanners([...banners, banner]);
-    setNewBanner({ title: "", linkUrl: "", status: "Active", imageFile: null, previewUrl: "" });
-    setIsAddDialogOpen(false);
-    toast.success("Banner added successfully");
+    setIsSubmitting(true);
+    try {
+      await apiPost("/banners", {
+        title: newBanner.title.trim(),
+        subtitle: newBanner.subtitle.trim() || undefined,
+        imageUrl: newBanner.imageUrl.trim(),
+        linkUrl: newBanner.linkUrl.trim() || undefined,
+        status: newBanner.status,
+      });
+      toast.success("Banner added successfully!");
+      setIsAddDialogOpen(false);
+      setNewBanner({
+        title: "",
+        subtitle: "",
+        linkUrl: "",
+        imageUrl: "",
+        status: "ACTIVE",
+      });
+      fetchBanners();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to create banner");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      <div className="flex justify-between items-center">
-        <p className="text-slate-500 text-sm">Drag or use arrows to reorder homepage slider banners.</p>
-        <button 
-          onClick={() => setIsAddDialogOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors text-sm"
-        >
-          <Plus className="w-4 h-4" /> Add Banner
-        </button>
+    <div className="space-y-6">
+      {/* Action Bar */}
+      <div className="flex justify-between items-center bg-white p-4 rounded-xl border shadow-sm">
+        <div>
+          <h2 className="text-base font-bold text-slate-800">Banner Slider Manager</h2>
+          <p className="text-xs text-slate-500">Configure homepage carousel slides and promotional banners</p>
+        </div>
+        <Button onClick={() => setIsAddDialogOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs">
+          <Plus className="w-4 h-4 mr-1.5" /> Add New Banner
+        </Button>
       </div>
 
-      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
+      {/* Banner List */}
+      {isLoading ? (
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-28 w-full rounded-2xl" />
+          ))}
+        </div>
+      ) : banners.length === 0 ? (
+        <div className="text-center py-16 bg-white border rounded-2xl p-8">
+          <ImageIcon className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+          <p className="text-slate-600 font-bold">No Banners Found</p>
+          <p className="text-xs text-slate-400 mt-1 mb-4">Add your first promotional hero slide.</p>
+          <Button onClick={() => setIsAddDialogOpen(true)} size="sm">
+            Add Banner
+          </Button>
+        </div>
+      ) : (
         <div className="space-y-3">
           {banners.map((banner, index) => (
-            <div key={banner.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4 group transition-all hover:border-emerald-200 hover:shadow-md">
-              
-              {/* Drag Handle & Order */}
-              <div className="flex flex-col items-center gap-1 shrink-0 px-2 border-r border-slate-100 pr-4">
-                <button 
-                  onClick={() => handleMoveUp(index)}
-                  disabled={index === 0}
-                  className="p-1 text-slate-300 hover:text-emerald-600 disabled:opacity-30 disabled:hover:text-slate-300 transition-colors"
-                >
-                  <ArrowUp className="w-4 h-4" />
-                </button>
-                <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-500">
-                  {banner.position}
+            <div
+              key={banner.id}
+              className="flex flex-col sm:flex-row items-center justify-between p-4 bg-white border rounded-2xl shadow-sm gap-4 hover:border-slate-300 transition-colors"
+            >
+              <div className="flex items-center gap-4 w-full sm:w-auto">
+                <div className="flex flex-col gap-1">
+                  <button
+                    onClick={() => handleMove(index, "up")}
+                    disabled={index === 0}
+                    className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                    title="Move Up"
+                  >
+                    <ArrowUp className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleMove(index, "down")}
+                    disabled={index === banners.length - 1}
+                    className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                    title="Move Down"
+                  >
+                    <ArrowDown className="w-4 h-4" />
+                  </button>
                 </div>
-                <button 
-                  onClick={() => handleMoveDown(index)}
-                  disabled={index === banners.length - 1}
-                  className="p-1 text-slate-300 hover:text-emerald-600 disabled:opacity-30 disabled:hover:text-slate-300 transition-colors"
-                >
-                  <ArrowDown className="w-4 h-4" />
-                </button>
-              </div>
 
-              {/* Image Thumbnail */}
-              <div className="w-48 h-16 shrink-0 rounded-lg overflow-hidden relative border border-slate-100 bg-slate-50">
-                <Image src={banner.image} alt={banner.title} fill className="object-cover" />
-              </div>
+                <div className="w-32 h-18 rounded-xl bg-slate-100 border overflow-hidden flex-shrink-0 flex items-center justify-center">
+                  <img
+                    src={getImageUrl(banner.imageUrl)}
+                    alt={banner.title}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
 
-              {/* Info */}
-              <div className="flex-1 min-w-0">
-                <h4 className="font-bold text-slate-800 truncate">{banner.title}</h4>
-                <div className="flex items-center gap-1 mt-1 text-xs text-slate-500 truncate">
-                  <Link className="w-3 h-3 shrink-0" />
-                  <span className="truncate">{banner.linkUrl}</span>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-extrabold text-slate-400">#{index + 1}</span>
+                    <h3 className="font-bold text-sm text-slate-900">{banner.title}</h3>
+                    <Badge className={banner.status === "ACTIVE" ? "bg-emerald-600 text-white text-[10px]" : "bg-slate-400 text-white text-[10px]"}>
+                      {banner.status}
+                    </Badge>
+                  </div>
+                  {banner.subtitle && <p className="text-xs text-slate-500">{banner.subtitle}</p>}
+                  {banner.linkUrl && (
+                    <p className="text-xs text-emerald-600 flex items-center gap-1">
+                      <ExternalLink className="w-3 h-3" /> {banner.linkUrl}
+                    </p>
+                  )}
                 </div>
               </div>
 
-              {/* Status */}
-              <div className="shrink-0 w-32 flex justify-center">
-                <button onClick={() => handleToggleStatus(banner.id)} className="transition-opacity hover:opacity-80">
-                  <StatusBadge status={banner.status} type={banner.status === "Active" ? "success" : "warning"} />
-                </button>
-              </div>
-
-              {/* Actions */}
-              <div className="shrink-0 flex items-center gap-2 pl-4 border-l border-slate-100">
-                <button className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors">
-                  <Edit2 className="w-4 h-4" />
-                </button>
-                <button onClick={() => handleDelete(banner.id)} className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end border-t sm:border-t-0 pt-2 sm:pt-0">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleToggleStatus(banner)}
+                  className="text-xs font-semibold"
+                >
+                  {banner.status === "ACTIVE" ? "Deactivate" : "Activate"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => handleDelete(banner.id)}
+                  className="text-slate-400 hover:text-danger hover:bg-danger/10"
+                >
                   <Trash2 className="w-4 h-4" />
-                </button>
+                </Button>
               </div>
-
             </div>
           ))}
-
-          {banners.length === 0 && (
-            <div className="text-center py-12 text-slate-500">
-              <ImageIcon className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-              <p>No banners found. Add one to show on the homepage.</p>
-            </div>
-          )}
         </div>
-      </div>
+      )}
 
+      {/* Add Banner Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Add Promotional Banner</DialogTitle>
           </DialogHeader>
-          <div className="pt-4 space-y-5">
-            
-            {/* Image Upload */}
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700 flex justify-between">
-                Banner Image *
-                <span className="text-slate-400 font-normal">Recommended: 1600x600px</span>
-              </label>
-              
-              {newBanner.previewUrl ? (
-                <div className="relative w-full h-40 rounded-xl overflow-hidden border border-slate-200 group">
-                  <Image src={newBanner.previewUrl} alt="Preview" fill className="object-cover" />
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <button 
-                      onClick={() => setNewBanner({ ...newBanner, previewUrl: "", imageFile: null })}
-                      className="px-4 py-2 bg-white text-slate-800 rounded-lg text-sm font-medium hover:bg-rose-50 hover:text-rose-600 transition-colors"
-                    >
-                      Remove Image
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <label className="flex flex-col items-center justify-center w-full h-40 border-2 border-slate-300 border-dashed rounded-xl cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
-                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                    <ImageIcon className="w-8 h-8 text-slate-400 mb-2" />
-                    <p className="text-sm text-slate-500 font-medium">Click to upload image</p>
-                    <p className="text-xs text-slate-400 mt-1">PNG, JPG up to 5MB</p>
-                  </div>
-                  <input type="file" className="hidden" accept="image/*" onChange={handleImageChange} />
-                </label>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Title (Optional Overlay Text)</label>
-              <Input 
-                placeholder="e.g. Summer Sale 2026" 
+          <form onSubmit={handleAddBanner} className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">Banner Title *</label>
+              <Input
+                placeholder="e.g. Mega Smartphone Display Sale"
                 value={newBanner.title}
-                onChange={e => setNewBanner({ ...newBanner, title: e.target.value })}
+                onChange={(e) => setNewBanner({ ...newBanner, title: e.target.value })}
+                required
               />
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Link URL</label>
-              <Input 
-                placeholder="e.g. /category/smartphones" 
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">Subtitle / Tagline (Optional)</label>
+              <Input
+                placeholder="e.g. Up to 40% off genuine AMOLED displays"
+                value={newBanner.subtitle}
+                onChange={(e) => setNewBanner({ ...newBanner, subtitle: e.target.value })}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">Image URL *</label>
+              <Input
+                placeholder="https://images.unsplash.com/... or /uploads/..."
+                value={newBanner.imageUrl}
+                onChange={(e) => setNewBanner({ ...newBanner, imageUrl: e.target.value })}
+                required
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">Target Link URL (Optional)</label>
+              <Input
+                placeholder="e.g. /category/displays or /product/iphone-14-display"
                 value={newBanner.linkUrl}
-                onChange={e => setNewBanner({ ...newBanner, linkUrl: e.target.value })}
+                onChange={(e) => setNewBanner({ ...newBanner, linkUrl: e.target.value })}
               />
             </div>
-            
-            <div className="flex items-center gap-3 pt-2">
-              <label className="text-sm font-semibold text-slate-700">Status:</label>
-              <select 
-                className="h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm outline-none focus:border-emerald-500"
-                value={newBanner.status}
-                onChange={e => setNewBanner({ ...newBanner, status: e.target.value as "Active" | "Inactive" })}
-              >
-                <option value="Active">Active</option>
-                <option value="Inactive">Inactive</option>
-              </select>
-            </div>
 
-            <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-              <button 
-                onClick={() => setIsAddDialogOpen(false)}
-                className="px-4 py-2 text-slate-600 hover:bg-slate-100 font-medium rounded-lg transition-colors text-sm"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleAddBanner}
-                className="px-6 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors text-sm"
-              >
-                Add Banner
-              </button>
-            </div>
-
-          </div>
+            <Button type="submit" disabled={isSubmitting} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold">
+              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save Banner"}
+            </Button>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

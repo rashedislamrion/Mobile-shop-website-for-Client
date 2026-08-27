@@ -1,15 +1,13 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
 import { FilterBar } from "@/components/admin/FilterBar";
 import { DataTable } from "@/components/admin/DataTable";
 import { ReportExportButtons } from "@/components/admin/ReportExportButtons";
 import { FilterConfig } from "@/types/table";
-import { mockProductAnalytics, mockSalesTrendByCategory, ProductAnalyticsRecord } from "@/lib/mock-data/reports/product-analytics";
 import { ColumnDef } from "@tanstack/react-table";
-import { Package, DollarSign, TrendingUp, Tag, ArrowUpRight, ArrowDownRight, Star } from "lucide-react";
-import Image from "next/image";
+import { Package, DollarSign, TrendingUp, Tag, Star } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -20,229 +18,263 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import { apiGet } from "@/lib/api-client";
+import { toast } from "sonner";
+import { Skeleton } from "@/components/ui/skeleton";
+
+interface ProductAnalyticsRecord {
+  id: string;
+  name: string;
+  sku: string;
+  category: string;
+  brand: string;
+  rating: number;
+  totalSold: number;
+  totalRevenue: number;
+  totalProfit: number;
+  currentStock: number;
+  revenueContributionPct: number;
+}
 
 export default function ProductAnalyticsReport() {
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
+  const [data, setData] = useState<ProductAnalyticsRecord[]>([]);
+  const [categoryTrends, setCategoryTrends] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
   const [filters, setFilters] = useState<Record<string, unknown>>({});
+
+  const [branches, setBranches] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
 
   useEffect(() => {
     setTitle("Product Analytics Report");
     setBadge("Website");
     setDateFilter(""); 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setTitle, setBadge, setDateFilter]);
+
+  useEffect(() => {
+    Promise.all([
+      apiGet<any[]>("/branches/public"),
+      apiGet<any[]>("/categories/tree"),
+    ])
+      .then(([branchRes, catRes]) => {
+        if (Array.isArray(branchRes)) setBranches(branchRes);
+        if (Array.isArray(catRes)) setCategories(catRes);
+      })
+      .catch(() => {});
   }, []);
 
-  const filterConfigs: FilterConfig[] = [
+  const loadData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const params: Record<string, any> = {};
+
+      if (filters.branch) params.branch = filters.branch;
+      if (filters.category) params.category = filters.category;
+      if (searchQuery.trim()) params.search = searchQuery.trim();
+
+      const res = await apiGet<{
+        topProducts: ProductAnalyticsRecord[];
+        categoryTrends: any[];
+      }>("/reports/product-analytics", params);
+
+      setData(res?.topProducts || []);
+      setCategoryTrends(res?.categoryTrends || []);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load product analytics report");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [filters, searchQuery]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Derived KPIs
+  const totalRevenue = data.reduce((sum, p) => sum + p.totalRevenue, 0);
+  const totalUnitsSold = data.reduce((sum, p) => sum + p.totalSold, 0);
+  const totalProfit = data.reduce((sum, p) => sum + p.totalProfit, 0);
+
+  const filterConfigs: FilterConfig[] = useMemo(() => [
     {
       type: "select",
       label: "Branch",
       key: "branch",
-      options: [
-        { label: "Global", value: "Global" },
-        { label: "Dhaka Main Branch", value: "Dhaka" },
-        { label: "Chattogram Branch", value: "Ctg" },
-      ],
+      options: branches.map((b) => ({ label: b.name, value: b.id })),
     },
     {
       type: "select",
       label: "Category",
       key: "category",
-      options: [
-        { label: "Smartphones", value: "Smartphones" },
-        { label: "Accessories", value: "Accessories" },
-        { label: "Laptops", value: "Laptops" },
-        { label: "Audio", value: "Audio" },
-      ],
+      options: categories.map((c) => ({ label: c.name, value: c.id })),
     },
-  ];
-
-  const filteredData = useMemo(() => {
-    let result = [...mockProductAnalytics];
-    if (filters.category) {
-      result = result.filter(o => o.category === filters.category);
-    }
-    return result.sort((a, b) => b.unitsSold - a.unitsSold); // Default sort
-  }, [filters]);
+  ], [branches, categories]);
 
   const columns: ColumnDef<ProductAnalyticsRecord>[] = [
     {
-      accessorKey: "rank",
-      header: "Rank",
-      cell: ({ row }) => <span className="font-bold text-slate-800">#{row.original.rank}</span>
-    },
-    {
-      id: "product",
-      header: "Product",
+      accessorKey: "name",
+      header: "Product Name",
       cell: ({ row }) => (
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-md overflow-hidden bg-slate-100 border border-slate-200 relative shrink-0">
-            <Image src={row.original.productImage} alt={row.original.productName} fill className="object-cover" />
+        <div>
+          <div className="font-semibold text-slate-800 flex items-center gap-1.5">
+            {row.original.name}
+            {row.original.rating > 0 && (
+              <span className="flex items-center text-xs text-amber-500 font-normal">
+                <Star className="w-3 h-3 fill-amber-400 text-amber-400 inline" /> {row.original.rating}
+              </span>
+            )}
           </div>
-          <span className="font-semibold text-slate-800 text-sm">{row.original.productName}</span>
+          <div className="text-xs text-slate-400 font-mono">
+            {row.original.brand} • {row.original.category}
+          </div>
         </div>
       ),
     },
     {
-      accessorKey: "category",
-      header: "Category",
-      cell: ({ row }) => <span className="text-sm text-slate-600">{row.original.category}</span>
-    },
-    {
-      accessorKey: "unitsSold",
+      accessorKey: "totalSold",
       header: "Units Sold",
-      cell: ({ row }) => <span className="font-bold text-slate-800">{row.original.unitsSold.toLocaleString()}</span>
-    },
-    {
-      accessorKey: "revenue",
-      header: "Revenue",
-      cell: ({ row }) => <span className="font-semibold text-slate-700">৳{row.original.revenue.toLocaleString()}</span>
-    },
-    {
-      accessorKey: "rating",
-      header: "Avg. Rating",
       cell: ({ row }) => (
-        <div className="flex items-center gap-1 font-semibold text-sm text-slate-700">
-          {row.original.rating.toFixed(1)} <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-        </div>
-      )
+        <span className="font-semibold text-slate-700">
+          {row.original.totalSold.toLocaleString()}
+        </span>
+      ),
     },
     {
-      accessorKey: "stockRemaining",
-      header: "Stock",
-      cell: ({ row }) => {
-        const stock = row.original.stockRemaining;
-        const color = stock > 50 ? "text-emerald-600" : stock > 20 ? "text-amber-600" : "text-red-600";
-        return <span className={`font-bold ${color}`}>{stock} left</span>;
-      }
+      accessorKey: "currentStock",
+      header: "Current Stock",
+      cell: ({ row }) => (
+        <span className={`font-semibold text-xs px-2 py-0.5 rounded-full ${
+          row.original.currentStock < 10 ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600"
+        }`}>
+          {row.original.currentStock} in stock
+        </span>
+      ),
     },
     {
-      accessorKey: "trend",
-      header: "Trend",
-      cell: ({ row }) => {
-        const trend = row.original.trend;
-        const isUp = trend >= 0;
-        return (
-          <div className={`flex items-center gap-1 text-sm font-semibold ${isUp ? "text-emerald-600" : "text-red-600"}`}>
-            {isUp ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
-            {Math.abs(trend)}%
+      accessorKey: "totalRevenue",
+      header: "Revenue Generated",
+      cell: ({ row }) => (
+        <span className="font-bold text-slate-900">
+          ৳{row.original.totalRevenue.toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "totalProfit",
+      header: "Est. Gross Profit",
+      cell: ({ row }) => (
+        <span className="font-semibold text-emerald-600">
+          ৳{row.original.totalProfit.toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "revenueContributionPct",
+      header: "Share of Rev",
+      cell: ({ row }) => (
+        <div className="w-24">
+          <div className="flex justify-between text-xs mb-1 font-medium">
+            <span>{row.original.revenueContributionPct}%</span>
           </div>
-        );
-      }
-    }
+          <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+            <div 
+              className="bg-emerald-500 h-full rounded-full" 
+              style={{ width: `${Math.min(100, row.original.revenueContributionPct)}%` }}
+            />
+          </div>
+        </div>
+      ),
+    },
   ];
 
   return (
     <div className="space-y-6">
       
       {/* Top Filter Bar */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
         <FilterBar 
+          searchPlaceholder="Search product by name, brand..."
           filters={filterConfigs}
+          onSearchChange={(val) => setSearchQuery(val)}
           onFilterChange={(key, val) => setFilters(prev => ({ ...prev, [key]: val }))}
-          onReset={() => setFilters({})}
+          onReset={() => {
+            setSearchQuery("");
+            setFilters({});
+          }}
           className="flex-1"
         />
-        <div className="ml-4">
-          <ReportExportButtons />
-        </div>
+        <ReportExportButtons />
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
-          <div className="flex justify-between items-start mb-4">
-            <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
-              <Package className="w-5 h-5" />
-            </div>
-            <div className="flex items-center gap-1 text-sm font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-              <ArrowUpRight className="w-3.5 h-3.5" /> 12%
-            </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+            <DollarSign className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-sm font-medium text-slate-500 mb-1">Total Units Sold</p>
-            <p className="text-2xl font-bold text-slate-800">12,450</p>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Sales Revenue</p>
+            <p className="text-2xl font-bold text-slate-800 mt-1">৳{totalRevenue.toLocaleString()}</p>
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
-          <div className="flex justify-between items-start mb-4">
-            <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <DollarSign className="w-5 h-5" />
-            </div>
-            <div className="flex items-center gap-1 text-sm font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-              <ArrowUpRight className="w-3.5 h-3.5" /> 8.5%
-            </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+            <Package className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-sm font-medium text-slate-500 mb-1">Total Product Revenue</p>
-            <p className="text-2xl font-bold text-slate-800">৳24.5M</p>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Units Dispatched</p>
+            <p className="text-2xl font-bold text-slate-800 mt-1">{totalUnitsSold.toLocaleString()}</p>
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
-          <div className="flex justify-between items-start mb-4">
-            <div className="w-10 h-10 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center">
-              <Tag className="w-5 h-5" />
-            </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+            <TrendingUp className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-sm font-medium text-slate-500 mb-1">Best Performing Category</p>
-            <p className="text-2xl font-bold text-slate-800">Smartphones</p>
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
-          <div className="flex justify-between items-start mb-4">
-            <div className="w-10 h-10 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
-              <TrendingUp className="w-5 h-5" />
-            </div>
-            <div className="flex items-center gap-1 text-sm font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full">
-              <ArrowDownRight className="w-3.5 h-3.5" /> 2.1%
-            </div>
-          </div>
-          <div>
-            <p className="text-sm font-medium text-slate-500 mb-1">Avg. Order Value</p>
-            <p className="text-2xl font-bold text-slate-800">৳15,400</p>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Gross Margin</p>
+            <p className="text-2xl font-bold text-emerald-600 mt-1">৳{totalProfit.toLocaleString()}</p>
           </div>
         </div>
       </div>
 
-      {/* Chart */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-        <h3 className="text-lg font-bold text-slate-800 mb-6">Sales Trend by Category (Last 6 Months)</h3>
-        <div className="h-[350px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={mockSalesTrendByCategory}
-              margin={{ top: 20, right: 30, left: 0, bottom: 5 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-              <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{fill: '#64748b'}} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b'}} />
-              <Tooltip 
-                cursor={{fill: '#f8fafc'}}
-                contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-              />
-              <Legend wrapperStyle={{ paddingTop: '20px' }} />
-              <Bar dataKey="Smartphones" stackId="a" fill="#0ea5e9" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="Accessories" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="Laptops" stackId="a" fill="#f59e0b" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="Audio" stackId="a" fill="#8b5cf6" radius={[0, 0, 0, 0]} />
-              <Bar dataKey="Tablets" stackId="a" fill="#ec4899" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+      {/* Category Performance Trends Chart */}
+      {categoryTrends.length > 0 && (
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <div>
+            <h3 className="font-bold text-slate-800 text-base">Category Sales Performance Trend</h3>
+            <p className="text-xs text-slate-400">Monthly breakdown of units sold across top product categories</p>
+          </div>
 
-      {/* Data Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden p-5">
-        <h3 className="text-lg font-bold text-slate-800 mb-4 px-1">Top Performing Products</h3>
-        <DataTable 
-          columns={columns} 
-          data={filteredData} 
-          pageSize={10}
-        />
-      </div>
+          <div className="h-[280px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={categoryTrends} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 12, fill: '#64748b' }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
+                <Bar dataKey="Smartphones" fill="#10b981" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Accessories" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Audio" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Laptops" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Main Table */}
+      <DataTable 
+        columns={columns} 
+        data={data} 
+        pageSize={10}
+      />
 
     </div>
   );

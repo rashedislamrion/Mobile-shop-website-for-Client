@@ -6,11 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useFieldArray } from "react-hook-form";
 import * as z from "zod";
 import { toast } from "sonner";
-import { 
-  Check, MapPin, ChevronDown 
-} from "lucide-react";
-import { Branch } from "@/lib/mock-data/branches";
-
+import { Check, MapPin, ChevronDown, Loader2 } from "lucide-react";
 import {
   Form,
   FormControl,
@@ -22,33 +18,55 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { apiPost, apiPatch } from "@/lib/api-client";
 
 const formSchema = z.object({
   name: z.string().min(2, "Branch name is required"),
   code: z.string().min(2, "Branch code is required"),
-  type: z.enum(["Flagship Store", "Outlet", "Warehouse-only"]),
-  address: z.string().min(5, "Address is required"),
+  type: z.enum(["OUTLET", "WAREHOUSE", "HEAD_OFFICE"]),
+  address: z.string().min(3, "Address is required"),
   city: z.string().min(2, "City is required"),
-  contactNumber: z.string().min(5, "Contact number is required"),
-  alternatePhone: z.string().optional(),
-  email: z.string().email().optional().or(z.literal("")),
-  managerName: z.string().optional(),
+  phone: z.string().min(5, "Contact number is required"),
+  altPhone: z.string().optional(),
+  email: z.string().email("Invalid email format").optional().or(z.literal("")),
+  managerId: z.string().optional(),
   openingStockValue: z.coerce.number().optional(),
-  vatNumber: z.string().optional(),
-  status: z.enum(["Active", "Inactive"]),
+  taxRegNumber: z.string().optional(),
+  status: z.enum(["ACTIVE", "INACTIVE"]),
+  showInFooter: z.boolean().default(true),
   operatingHours: z.array(z.object({
     day: z.string(),
     openTime: z.string(),
     closeTime: z.string(),
     isClosed: z.boolean(),
-  })),
+  })).optional(),
 });
 
 type BranchFormValues = z.infer<typeof formSchema>;
 
+export interface ExistingBranchData {
+  id: string;
+  name: string;
+  code: string;
+  type: "OUTLET" | "WAREHOUSE" | "HEAD_OFFICE";
+  address: string;
+  city: string;
+  phone: string;
+  altPhone?: string | null;
+  email?: string | null;
+  managerId?: string | null;
+  manager?: { id: string; name: string };
+  openingStockValue?: number | string;
+  taxRegNumber?: string | null;
+  status: "ACTIVE" | "INACTIVE";
+  showInFooter?: boolean;
+  operatingHours?: any;
+}
+
 interface BranchFormProps {
-  initialData?: Branch | null;
+  initialData?: ExistingBranchData | null;
   isEdit?: boolean;
+  branchId?: string;
 }
 
 const defaultOperatingHours = [
@@ -61,25 +79,29 @@ const defaultOperatingHours = [
   { day: "Saturday", openTime: "10:00", closeTime: "20:00", isClosed: false },
 ];
 
-export function BranchForm({ initialData, isEdit }: BranchFormProps) {
+export function BranchForm({ initialData, isEdit, branchId }: BranchFormProps) {
   const router = useRouter();
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const form = useForm<BranchFormValues>({
-    resolver: zodResolver(formSchema),
-    defaultValues: initialData || {
-      name: "",
-      code: "",
-      type: "Flagship Store",
-      address: "",
-      city: "Dhaka",
-      contactNumber: "",
-      alternatePhone: "",
-      email: "",
-      managerName: "",
-      openingStockValue: 0,
-      vatNumber: "",
-      status: "Active",
-      operatingHours: defaultOperatingHours,
+    resolver: zodResolver(formSchema) as any,
+    defaultValues: {
+      name: initialData?.name || "",
+      code: initialData?.code || "",
+      type: initialData?.type || "OUTLET",
+      address: initialData?.address || "",
+      city: initialData?.city || "Dhaka",
+      phone: initialData?.phone || "",
+      altPhone: initialData?.altPhone || "",
+      email: initialData?.email || "",
+      managerId: initialData?.managerId || "",
+      openingStockValue: Number(initialData?.openingStockValue) || 0,
+      taxRegNumber: initialData?.taxRegNumber || "",
+      status: initialData?.status || "ACTIVE",
+      showInFooter: initialData?.showInFooter !== undefined ? initialData.showInFooter : true,
+      operatingHours: Array.isArray(initialData?.operatingHours)
+        ? initialData.operatingHours
+        : defaultOperatingHours,
     },
   });
 
@@ -88,17 +110,35 @@ export function BranchForm({ initialData, isEdit }: BranchFormProps) {
     control: form.control,
   });
 
-  const onSubmit = (data: BranchFormValues) => {
-    console.log("Saving branch...", data);
-    toast.success(`Branch ${isEdit ? "updated" : "created"} successfully!`);
-    router.push("/admin/branch");
+  const onSubmit = async (data: BranchFormValues) => {
+    setIsSubmitting(true);
+    try {
+      const payload = {
+        ...data,
+        managerId: data.managerId ? data.managerId : undefined,
+      };
+
+      if (isEdit && branchId) {
+        await apiPatch(`/branches/${branchId}`, payload);
+        toast.success(`Branch "${data.name}" updated successfully!`);
+      } else {
+        await apiPost("/branches", payload);
+        toast.success(`Branch "${data.name}" created successfully!`);
+      }
+
+      router.push("/admin/branch");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save branch");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col lg:flex-row gap-6 relative items-start">
         
-        {/* LEFT COLUMN: Main Form Sections */}
+        {/* LEFT COLUMN */}
         <div className="w-full lg:w-2/3 space-y-6">
           
           {/* Basic Information */}
@@ -142,11 +182,11 @@ export function BranchForm({ initialData, isEdit }: BranchFormProps) {
                     <FormControl>
                       <select 
                         {...field}
-                        className="w-full h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all appearance-none cursor-pointer"
+                        className="w-full h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all cursor-pointer"
                       >
-                        <option value="Flagship Store">Flagship Store</option>
-                        <option value="Outlet">Outlet</option>
-                        <option value="Warehouse-only">Warehouse-only</option>
+                        <option value="OUTLET">Outlet / Store</option>
+                        <option value="WAREHOUSE">Warehouse</option>
+                        <option value="HEAD_OFFICE">Head Office</option>
                       </select>
                     </FormControl>
                     <FormMessage />
@@ -176,28 +216,12 @@ export function BranchForm({ initialData, isEdit }: BranchFormProps) {
                 <FormItem>
                   <FormLabel>City *</FormLabel>
                   <FormControl>
-                    <select 
-                      {...field}
-                      className="w-full h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all appearance-none cursor-pointer"
-                    >
-                      <option value="Dhaka">Dhaka</option>
-                      <option value="Chattogram">Chattogram</option>
-                      <option value="Sylhet">Sylhet</option>
-                      <option value="Gazipur">Gazipur</option>
-                    </select>
+                    <Input placeholder="e.g. Dhaka" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
-
-            <div className="pt-2">
-              <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">Location on Map</label>
-              <div className="mt-2 h-40 bg-slate-100 border border-slate-200 rounded-lg flex flex-col items-center justify-center text-slate-400">
-                <MapPin className="w-8 h-8 mb-2 opacity-50" />
-                <p className="text-sm font-medium">Map preview placeholder</p>
-              </div>
-            </div>
           </div>
 
           {/* Contact Info */}
@@ -207,10 +231,10 @@ export function BranchForm({ initialData, isEdit }: BranchFormProps) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <FormField
                 control={form.control}
-                name="contactNumber"
+                name="phone"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Phone Number *</FormLabel>
+                    <FormLabel>Primary Phone *</FormLabel>
                     <FormControl><Input placeholder="+880..." {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
@@ -218,7 +242,7 @@ export function BranchForm({ initialData, isEdit }: BranchFormProps) {
               />
               <FormField
                 control={form.control}
-                name="alternatePhone"
+                name="altPhone"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Alternate Phone (Optional)</FormLabel>
@@ -236,32 +260,6 @@ export function BranchForm({ initialData, isEdit }: BranchFormProps) {
                 <FormItem>
                   <FormLabel>Email Address</FormLabel>
                   <FormControl><Input type="email" placeholder="branch@example.com" {...field} value={field.value || ""} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-
-          {/* Branch Manager */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
-            <h3 className="font-semibold text-slate-800 text-lg mb-4">Branch Manager</h3>
-            <FormField
-              control={form.control}
-              name="managerName"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Assign Manager</FormLabel>
-                  <FormControl>
-                    <select 
-                      {...field}
-                      className="w-full h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all appearance-none cursor-pointer"
-                    >
-                      <option value="">Unassigned</option>
-                      <option value="Rahim Uddin">Rahim Uddin (Manager)</option>
-                      <option value="Karim Hasan">Karim Hasan (Manager)</option>
-                      <option value="Jashim Uddin">Jashim Uddin (Admin)</option>
-                    </select>
-                  </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -324,11 +322,11 @@ export function BranchForm({ initialData, isEdit }: BranchFormProps) {
             </div>
           </div>
 
-          {/* Business Settings (Accordion Style) */}
+          {/* Additional Settings */}
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
             <details className="group">
               <summary className="font-semibold text-slate-800 text-lg p-6 flex justify-between items-center cursor-pointer list-none">
-                Business Settings (Optional)
+                Business & Tax Details (Optional)
                 <span className="transition group-open:rotate-180">
                   <ChevronDown className="w-5 h-5 text-slate-400" />
                 </span>
@@ -347,7 +345,7 @@ export function BranchForm({ initialData, isEdit }: BranchFormProps) {
                 />
                 <FormField
                   control={form.control}
-                  name="vatNumber"
+                  name="taxRegNumber"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Tax/VAT Registration Number</FormLabel>
@@ -362,11 +360,11 @@ export function BranchForm({ initialData, isEdit }: BranchFormProps) {
 
         </div>
 
-        {/* RIGHT COLUMN: Sticky Publish sidebar */}
+        {/* RIGHT COLUMN */}
         <div className="w-full lg:w-1/3 space-y-6 lg:sticky lg:top-6">
           
           <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-5">
-            <h3 className="font-semibold text-slate-800 border-b border-slate-100 pb-3">Status</h3>
+            <h3 className="font-semibold text-slate-800 border-b border-slate-100 pb-3">Status & Visibility</h3>
             
             <FormField
               control={form.control}
@@ -374,15 +372,36 @@ export function BranchForm({ initialData, isEdit }: BranchFormProps) {
               render={({ field }) => (
                 <FormItem className="flex flex-row items-center justify-between rounded-lg border border-slate-100 bg-slate-50 p-4 space-y-0">
                   <div className="space-y-0.5">
-                    <FormLabel className="text-base">Branch Status</FormLabel>
+                    <FormLabel className="text-sm font-semibold">Active Status</FormLabel>
                     <div className="text-xs text-slate-500">
-                      {field.value === "Active" ? "Branch is visible and operational" : "Branch is currently closed/hidden"}
+                      {field.value === "ACTIVE" ? "Branch is operational" : "Branch is currently disabled"}
                     </div>
                   </div>
                   <FormControl>
                     <Switch
-                      checked={field.value === "Active"}
-                      onCheckedChange={(checked) => field.onChange(checked ? "Active" : "Inactive")}
+                      checked={field.value === "ACTIVE"}
+                      onCheckedChange={(checked) => field.onChange(checked ? "ACTIVE" : "INACTIVE")}
+                    />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="showInFooter"
+              render={({ field }) => (
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border border-slate-100 bg-slate-50 p-4 space-y-0">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-sm font-semibold">Show in Website Footer</FormLabel>
+                    <div className="text-xs text-slate-500">
+                      Display contact address on storefront footer
+                    </div>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
                     />
                   </FormControl>
                 </FormItem>
@@ -390,8 +409,13 @@ export function BranchForm({ initialData, isEdit }: BranchFormProps) {
             />
 
             <div className="flex flex-col gap-2 pt-2">
-              <button type="submit" className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors">
-                <Check className="w-4 h-4" /> {isEdit ? "Update Branch" : "Save Branch"}
+              <button 
+                type="submit" 
+                disabled={isSubmitting}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors"
+              >
+                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                {isEdit ? "Update Branch" : "Save Branch"}
               </button>
               <button 
                 type="button" 

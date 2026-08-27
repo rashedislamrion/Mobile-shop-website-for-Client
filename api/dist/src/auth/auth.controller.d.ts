@@ -39,18 +39,7 @@ export declare class AuthController {
         success: boolean;
     }>;
     getMe(userId: string, userType: 'STAFF' | 'CUSTOMER'): Promise<{
-        name: string;
-        id: string;
-        createdAt: Date;
-        updatedAt: Date;
-        email: string;
-        phone: string;
-        passwordHash: string;
-        photo: string | null;
-        status: import(".prisma/client").$Enums.StaffStatus;
-        emailVerified: boolean;
-        phoneVerified: boolean;
-    } | ({
+        userType: string;
         role: {
             permissions: {
                 id: string;
@@ -86,8 +75,8 @@ export declare class AuthController {
             openingStockValue: import("@prisma/client/runtime/library").Decimal;
             taxRegNumber: string | null;
             showInFooter: boolean;
+            isOnlineDefault: boolean;
         } | null;
-    } & {
         name: string;
         id: string;
         createdAt: Date;
@@ -112,6 +101,19 @@ export declare class AuthController {
         paymentMethod: import(".prisma/client").$Enums.StaffPaymentMethod | null;
         bankAccountNo: string | null;
         specializations: string[];
-    }) | null>;
+    } | {
+        userType: string;
+        name: string;
+        id: string;
+        createdAt: Date;
+        updatedAt: Date;
+        email: string;
+        phone: string;
+        passwordHash: string;
+        photo: string | null;
+        status: import(".prisma/client").$Enums.StaffStatus;
+        emailVerified: boolean;
+        phoneVerified: boolean;
+    } | null>;
     private setRefreshTokenCookie;
 }

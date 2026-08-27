@@ -271,17 +271,21 @@ let AuthService = class AuthService {
                     branch: true,
                 },
             });
-            if (staff)
+            if (staff) {
                 delete staff.passwordHash;
-            return staff;
+                return { ...staff, userType: 'STAFF' };
+            }
+            return null;
         }
         else {
             const customer = await this.prisma.customer.findUnique({
                 where: { id: userId },
             });
-            if (customer)
+            if (customer) {
                 delete customer.passwordHash;
-            return customer;
+                return { ...customer, userType: 'CUSTOMER' };
+            }
+            return null;
         }
     }
     async generateTokens(userId, userType, roleId, roleName, branchId) {

@@ -1,136 +1,159 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
 import { FilterBar } from "@/components/admin/FilterBar";
-import { DataTable, ActionDropdown, StatusBadge } from "@/components/admin/DataTable";
+import { DataTable } from "@/components/admin/DataTable";
 import { ReportExportButtons } from "@/components/admin/ReportExportButtons";
-import { FilterConfig, TableAction } from "@/types/table";
-import { mockDiscountData, DiscountRecord } from "@/lib/mock-data/reports/discount";
+import { FilterConfig } from "@/types/table";
 import { ColumnDef } from "@tanstack/react-table";
-import { Eye, Tag, Percent, Receipt } from "lucide-react";
+import { Tag, Percent, Receipt } from "lucide-react";
 import Link from "next/link";
+import { apiGet } from "@/lib/api-client";
 import { toast } from "sonner";
+
+interface DiscountOrderItem {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  customerPhone: string;
+  branch: string;
+  orderTotal: number;
+  discount: number;
+  discountPercentage: number;
+  promoCode: string;
+  createdAt: string;
+}
 
 export default function DiscountReport() {
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
+  const [data, setData] = useState<DiscountOrderItem[]>([]);
+  const [summary, setSummary] = useState({ totalDiscountGiven: 0, ordersWithDiscountCount: 0, avgDiscountPercentage: 0 });
+  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [filters, setFilters] = useState<Record<string, unknown>>({});
+  const [branches, setBranches] = useState<any[]>([]);
 
   useEffect(() => {
     setTitle("Discount Report");
     setBadge("Website");
     setDateFilter(""); 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setTitle, setBadge, setDateFilter]);
+
+  useEffect(() => {
+    apiGet<any[]>("/branches/public")
+      .then((res) => {
+        if (Array.isArray(res)) setBranches(res);
+      })
+      .catch(() => {});
   }, []);
 
-  const filterConfigs: FilterConfig[] = [
+  const loadData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const params: Record<string, any> = {};
+
+      if (filters.branch) params.branch = filters.branch;
+      if (searchQuery.trim()) params.search = searchQuery.trim();
+
+      const res = await apiGet<{
+        ordersWithDiscount: DiscountOrderItem[];
+        summary: { totalDiscountGiven: number; ordersWithDiscountCount: number; avgDiscountPercentage: number };
+      }>("/reports/discount", params);
+
+      setData(res?.ordersWithDiscount || []);
+      if (res?.summary) setSummary(res.summary);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load discount report");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [filters, searchQuery]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const filterConfigs: FilterConfig[] = useMemo(() => [
     {
       type: "select",
       label: "Branch",
       key: "branch",
-      options: [
-        { label: "Global", value: "Global" },
-        { label: "Dhaka Main Branch", value: "Dhaka Main Branch" },
-        { label: "Chattogram Branch", value: "Chattogram Branch" },
-      ],
-    }
-  ];
-
-  const filteredData = useMemo(() => {
-    let result = [...mockDiscountData];
-    
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(o => 
-        o.orderCode.toLowerCase().includes(q)
-      );
-    }
-    
-    if (filters.branch) {
-      result = result.filter(o => o.branch === filters.branch);
-    }
-
-    return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [searchQuery, filters]);
-
-  // Derived KPIs
-  const totalDiscountGiven = filteredData.reduce((sum, d) => sum + d.discountApplied.amount, 0);
-  const ordersWithDiscount = filteredData.length;
-  const avgDiscountPercentage = ordersWithDiscount > 0 
-    ? filteredData.reduce((sum, d) => sum + d.discountApplied.percentage, 0) / ordersWithDiscount 
-    : 0;
-
-  const createActions = (row: DiscountRecord): TableAction[] => [
-    { 
-      label: "View Order", 
-      icon: <Eye className="w-4 h-4" />, 
-      onClick: () => toast.info(`Viewing Order ${row.orderCode}`) 
+      options: branches.map((b) => ({ label: b.name, value: b.id })),
     },
-  ];
+  ], [branches]);
 
-  const columns: ColumnDef<DiscountRecord>[] = [
+  const columns: ColumnDef<DiscountOrderItem>[] = [
     {
-      accessorKey: "date",
-      header: "Date",
-      cell: ({ row }) => <span className="text-sm text-slate-600">{row.original.date}</span>
-    },
-    {
-      accessorKey: "orderCode",
+      accessorKey: "orderNumber",
       header: "Order Code",
       cell: ({ row }) => (
         <Link 
-          href={`/admin/orders/${row.original.orderCode}`}
-          className="text-emerald-600 hover:text-emerald-700 font-mono font-medium text-sm transition-colors"
+          href={`/admin/sales/orders/${row.original.id}`}
+          className="font-mono font-bold text-emerald-600 hover:underline"
         >
-          {row.original.orderCode}
+          {row.original.orderNumber}
         </Link>
-      )
+      ),
     },
     {
-      accessorKey: "branch",
-      header: "Branch",
-      cell: ({ row }) => <span className="text-sm text-slate-600">{row.original.branch}</span>
+      accessorKey: "createdAt",
+      header: "Date",
+      cell: ({ row }) => (
+        <span className="text-slate-600 text-sm whitespace-nowrap">
+          {new Date(row.original.createdAt).toLocaleDateString("en-GB")}
+        </span>
+      ),
     },
     {
       accessorKey: "customerName",
       header: "Customer",
-      cell: ({ row }) => <span className="font-semibold text-slate-800">{row.original.customerName}</span>
+      cell: ({ row }) => (
+        <div>
+          <div className="font-semibold text-slate-800 leading-tight">
+            {row.original.customerName}
+          </div>
+          <div className="text-xs text-slate-400 font-mono">
+            {row.original.customerPhone}
+          </div>
+        </div>
+      ),
     },
     {
-      accessorKey: "originalTotal",
-      header: "Original Total",
-      cell: ({ row }) => <span className="text-sm text-slate-600">৳{row.original.originalTotal.toLocaleString()}</span>
+      accessorKey: "branch",
+      header: "Branch",
+      cell: ({ row }) => <span className="text-slate-600 text-sm">{row.original.branch}</span>,
     },
     {
-      accessorKey: "discountApplied",
+      accessorKey: "orderTotal",
+      header: "Final Total",
+      cell: ({ row }) => (
+        <span className="font-medium text-slate-800 text-sm">
+          ৳{row.original.orderTotal.toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "discount",
       header: "Discount Applied",
       cell: ({ row }) => (
-        <span className="font-bold text-red-600">
-          -৳{row.original.discountApplied.amount.toLocaleString()} ({row.original.discountApplied.percentage}%)
-        </span>
-      )
-    },
-    {
-      accessorKey: "finalTotal",
-      header: "Final Total",
-      cell: ({ row }) => <span className="font-bold text-slate-800">৳{row.original.finalTotal.toLocaleString()}</span>
-    },
-    {
-      accessorKey: "paymentStatus",
-      header: "Payment Status",
-      cell: ({ row }) => {
-        const s = row.original.paymentStatus;
-        return <StatusBadge status={s} type={s === "Paid" ? "success" : s === "Pending" ? "warning" : "default"} />;
-      }
-    },
-    {
-      id: "actions",
-      header: "Action",
-      cell: ({ row }) => (
-        <div className="flex justify-end">
-          <ActionDropdown actions={createActions(row.original)} rowData={row.original} />
+        <div className="flex items-center gap-1.5">
+          <span className="font-bold text-emerald-600">
+            -৳{row.original.discount.toLocaleString()}
+          </span>
+          <span className="text-[11px] font-semibold text-slate-400">
+            ({row.original.discountPercentage}%)
+          </span>
         </div>
+      ),
+    },
+    {
+      accessorKey: "promoCode",
+      header: "Promo / Type",
+      cell: ({ row }) => (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-50 text-emerald-700">
+          {row.original.promoCode}
+        </span>
       ),
     },
   ];
@@ -138,9 +161,10 @@ export default function DiscountReport() {
   return (
     <div className="space-y-6">
       
-      <div className="flex items-center justify-between">
+      {/* Top Filter Bar */}
+      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
         <FilterBar 
-          searchPlaceholder="Search order ID..."
+          searchPlaceholder="Search by order code, customer..."
           filters={filterConfigs}
           onSearchChange={(val) => setSearchQuery(val)}
           onFilterChange={(key, val) => setFilters(prev => ({ ...prev, [key]: val }))}
@@ -150,59 +174,47 @@ export default function DiscountReport() {
           }}
           className="flex-1"
         />
-        <div className="ml-4">
-          <ReportExportButtons />
-        </div>
+        <ReportExportButtons />
       </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-red-200 shadow-sm flex flex-col justify-between relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-red-50 rounded-full -translate-y-8 translate-x-8 opacity-50 pointer-events-none"></div>
-          <div className="flex justify-between items-start mb-4 relative z-10">
-            <div className="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center">
-              <Tag className="w-5 h-5" />
-            </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+            <Tag className="w-6 h-6" />
           </div>
-          <div className="relative z-10">
-            <p className="text-sm font-medium text-slate-600 mb-1">Total Discount Given</p>
-            <p className="text-3xl font-extrabold text-red-600">৳{totalDiscountGiven.toLocaleString()}</p>
+          <div>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total Discounts Given</p>
+            <p className="text-2xl font-bold text-emerald-600 mt-1">৳{summary.totalDiscountGiven.toLocaleString()}</p>
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
-          <div className="flex justify-between items-start mb-4">
-            <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
-              <Receipt className="w-5 h-5" />
-            </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+            <Receipt className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-sm font-medium text-slate-500 mb-1">Orders with Discount</p>
-            <p className="text-2xl font-bold text-slate-800">{ordersWithDiscount}</p>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Discounted Orders</p>
+            <p className="text-2xl font-bold text-slate-800 mt-1">{summary.ordersWithDiscountCount}</p>
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
-          <div className="flex justify-between items-start mb-4">
-            <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <Percent className="w-5 h-5" />
-            </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+            <Percent className="w-6 h-6" />
           </div>
           <div>
-            <p className="text-sm font-medium text-slate-500 mb-1">Avg. Discount %</p>
-            <p className="text-2xl font-bold text-slate-800">{avgDiscountPercentage.toFixed(1)}%</p>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Average Discount Rate</p>
+            <p className="text-2xl font-bold text-amber-600 mt-1">{summary.avgDiscountPercentage}%</p>
           </div>
         </div>
       </div>
 
-      {/* Data Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden p-5">
-        <DataTable 
-          columns={columns} 
-          data={filteredData} 
-          pageSize={10}
-        />
-      </div>
+      <DataTable 
+        columns={columns} 
+        data={data} 
+        pageSize={10}
+      />
 
     </div>
   );

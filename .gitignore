@@ -34,3 +34,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# uploads
+uploads/*
+!uploads/.gitkeep
+api/uploads/*
+!api/uploads/.gitkeep
+
+# build
+api/dist/
+
+# temp
+scratch/

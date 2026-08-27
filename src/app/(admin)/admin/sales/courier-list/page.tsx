@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
 import { FilterBar } from "@/components/admin/FilterBar";
 import { DataTable, StatusBadge, ActionDropdown } from "@/components/admin/DataTable";
 import { FilterConfig, StatusVariant, TableAction } from "@/types/table";
-import { mockCourierList, MockCourierTracking } from "@/lib/mock-data/sales/courier-list";
 import { ColumnDef } from "@tanstack/react-table";
 import { Eye, ExternalLink, CheckCircle } from "lucide-react";
 import {
@@ -16,10 +15,32 @@ import {
 } from "@/components/ui/tooltip";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
+import { apiGet, apiPatch } from "@/lib/api-client";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+
+interface ShipmentRecord {
+  id: string;
+  orderId: string;
+  courierPartner: string;
+  trackingNo: string;
+  address: string;
+  status: string;
+  lastUpdated: string;
+  order?: {
+    id: string;
+    orderCode: string;
+    customer?: { id: string; name: string; phone: string };
+    branch?: { id: string; name: string };
+  };
+}
 
 export default function CourierListPage() {
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
+  const router = useRouter();
   
+  const [data, setData] = useState<ShipmentRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [filters, setFilters] = useState<Record<string, unknown>>({});
 
@@ -27,8 +48,39 @@ export default function CourierListPage() {
     setTitle("Courier List");
     setBadge("Website");
     setDateFilter(""); 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [setTitle, setBadge, setDateFilter]);
+
+  const loadData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const params: Record<string, any> = {};
+
+      if (filters.courierPartner) params.courierPartner = filters.courierPartner;
+      if (filters.status) params.status = (filters.status as string).toUpperCase();
+      if (searchQuery) params.search = searchQuery;
+
+      const res = await apiGet<{ data: ShipmentRecord[] }>("/shipments", params);
+      setData(res.data || []);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load courier shipments");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [filters, searchQuery]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleUpdateStatus = async (shipmentId: string, status: string) => {
+    try {
+      await apiPatch(`/shipments/${shipmentId}/status`, { status });
+      toast.success(`Shipment status updated to ${status}`);
+      loadData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update shipment status");
+    }
+  };
 
   const filterConfigs: FilterConfig[] = [
     {
@@ -39,6 +91,7 @@ export default function CourierListPage() {
         { label: "Pathao", value: "Pathao" },
         { label: "Steadfast", value: "Steadfast" },
         { label: "RedX", value: "RedX" },
+        { label: "Paperfly", value: "Paperfly" },
       ],
     },
     {
@@ -46,72 +99,44 @@ export default function CourierListPage() {
       label: "Status",
       key: "status",
       options: [
-        { label: "Pending Pickup", value: "Pending Pickup" },
-        { label: "Picked Up", value: "Picked Up" },
-        { label: "In Transit", value: "In Transit" },
-        { label: "Delivered", value: "Delivered" },
-        { label: "Returned", value: "Returned" },
+        { label: "Pending Pickup", value: "PENDING_PICKUP" },
+        { label: "Picked Up", value: "PICKED_UP" },
+        { label: "In Transit", value: "IN_TRANSIT" },
+        { label: "Delivered", value: "DELIVERED" },
+        { label: "Returned", value: "RETURNED" },
       ],
-    },
-    {
-      type: "dateRange",
-      label: "Date Range",
-      key: "dateRange",
     },
   ];
 
-  const filteredData = useMemo(() => {
-    let result = [...mockCourierList];
-
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      result = result.filter(
-        (o) =>
-          o.trackingNo.toLowerCase().includes(q) ||
-          o.customerName.toLowerCase().includes(q) ||
-          o.orderId.toLowerCase().includes(q)
-      );
-    }
-
-    if (filters.courierPartner) {
-      result = result.filter((o) => o.courierPartner === filters.courierPartner);
-    }
-    if (filters.status) {
-      result = result.filter((o) => o.status === filters.status);
-    }
-
-    const dateRange = filters.dateRange as { from?: Date; to?: Date } | undefined;
-    if (dateRange?.from) {
-      const from = new Date(dateRange.from).getTime();
-      const to = dateRange.to ? new Date(dateRange.to).getTime() : from;
-      
-      result = result.filter((o) => {
-        const orderTime = new Date(o.lastUpdated).getTime();
-        return orderTime >= from && orderTime <= to + 86400000;
-      });
-    }
-
-    return result;
-  }, [searchQuery, filters]);
-
   const createActions = (): TableAction[] => [
-    { label: "View Details", icon: <Eye className="w-4 h-4" />, onClick: (row) => console.log("View", row) },
-    { label: "Track on Courier Site", icon: <ExternalLink className="w-4 h-4" />, onClick: (row) => console.log("Track", row) },
-    { label: "Mark as Delivered", icon: <CheckCircle className="w-4 h-4 text-emerald-600" />, onClick: (row) => console.log("Delivered", row) },
+    {
+      label: "View Order",
+      icon: <Eye className="w-4 h-4" />,
+      onClick: (row) => router.push(`/admin/orders/${row.orderId || row.id}`),
+    },
+    {
+      label: "Mark as Delivered",
+      icon: <CheckCircle className="w-4 h-4 text-emerald-600" />,
+      onClick: (row) => handleUpdateStatus(row.id, "DELIVERED"),
+    },
   ];
 
   const getOrderStatusVariant = (status: string): StatusVariant => {
     switch (status) {
+      case "DELIVERED":
       case "Delivered": return "success";
-      case "In Transit": 
-      case "Picked Up": return "info";
+      case "IN_TRANSIT":
+      case "PICKED_UP":
+      case "In Transit": return "info";
+      case "PENDING_PICKUP":
       case "Pending Pickup": return "warning";
+      case "RETURNED":
       case "Returned": return "danger";
       default: return "info";
     }
   };
 
-  const columns: ColumnDef<MockCourierTracking>[] = [
+  const columns: ColumnDef<ShipmentRecord>[] = [
     {
       accessorKey: "trackingNo",
       header: "Tracking No.",
@@ -121,8 +146,11 @@ export default function CourierListPage() {
       accessorKey: "orderId",
       header: "Order ID",
       cell: ({ row }) => (
-        <Link href={`/admin/sales/courier?search=${row.original.orderId}`} className="text-emerald-600 font-medium hover:underline">
-          {row.original.orderId}
+        <Link 
+          href={`/admin/orders/${row.original.orderId}`} 
+          className="text-emerald-600 font-medium hover:underline font-mono"
+        >
+          {row.original.order?.orderCode || row.original.orderId}
         </Link>
       ),
     },
@@ -132,9 +160,9 @@ export default function CourierListPage() {
       cell: ({ row }) => <span className="font-medium text-slate-700">{row.original.courierPartner}</span>,
     },
     {
-      accessorKey: "customerName",
+      accessorKey: "customer",
       header: "Customer",
-      cell: ({ row }) => <span className="font-medium text-slate-700">{row.original.customerName}</span>,
+      cell: ({ row }) => <span className="font-medium text-slate-700">{row.original.order?.customer?.name || "Customer"}</span>,
     },
     {
       accessorKey: "address",
@@ -156,7 +184,7 @@ export default function CourierListPage() {
           );
         }
         return addr;
-      }
+      },
     },
     {
       accessorKey: "status",
@@ -178,7 +206,7 @@ export default function CourierListPage() {
             {formatDistanceToNow(date, { addSuffix: true })}
           </span>
         );
-      }
+      },
     },
     {
       id: "actions",
@@ -197,7 +225,7 @@ export default function CourierListPage() {
         searchPlaceholder="Search Tracking No, Customer..."
         filters={filterConfigs}
         onSearchChange={(val) => setSearchQuery(val)}
-        onFilterChange={(key, val) => setFilters(prev => ({ ...prev, [key]: val }))}
+        onFilterChange={(key, val) => setFilters((prev) => ({ ...prev, [key]: val }))}
         onReset={() => {
           setSearchQuery("");
           setFilters({});
@@ -206,7 +234,7 @@ export default function CourierListPage() {
 
       <DataTable 
         columns={columns} 
-        data={filteredData} 
+        data={data} 
         pageSize={10}
       />
     </div>

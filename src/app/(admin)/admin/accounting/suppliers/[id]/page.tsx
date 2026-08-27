@@ -5,49 +5,77 @@ import { useParams, useRouter } from "next/navigation";
 import { useAdminPage } from "@/contexts/AdminPageContext";
 import { DataTable, StatusBadge } from "@/components/admin/DataTable";
 import { ColoredStatCard } from "@/components/admin/ColoredStatCard";
-import { mockSuppliers } from "@/lib/mock-data/accounting/suppliers";
-import { mockPurchaseOrders, PurchaseOrderRecord } from "@/lib/mock-data/accounting/purchase-orders";
-import { mockSupplierPayments, SupplierPaymentRecord } from "@/lib/mock-data/accounting/supplier-payments";
-import { Building2, Phone, Mail, MapPin, Globe, CreditCard, ShoppingBag, ArrowLeft, Edit } from "lucide-react";
+import { Building2, Phone, Mail, MapPin, CreditCard, ShoppingBag, ArrowLeft, Edit, Banknote } from "lucide-react";
 import { ColumnDef } from "@tanstack/react-table";
+import { apiGet } from "@/lib/api-client";
+import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
+import { PaymentSettlementDialog } from "@/components/admin/PaymentSettlementDialog";
 
 export default function SupplierProfilePage() {
   const params = useParams();
   const router = useRouter();
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
 
-  const supplier = mockSuppliers.find(s => s.id === params.id) || mockSuppliers[0];
-  const supplierPOs = mockPurchaseOrders.filter(po => po.supplierName === supplier.supplierName);
-  const supplierPayments = mockSupplierPayments.filter(p => p.supplierName === supplier.supplierName);
-
+  const [supplier, setSupplier] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"purchases" | "payments">("purchases");
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+
+  const loadSupplier = () => {
+    if (!params.id) return;
+    setIsLoading(true);
+    apiGet<any>(`/suppliers/${params.id}`)
+      .then((res) => {
+        setSupplier(res);
+        if (res?.name) setTitle(res.name);
+      })
+      .catch((err) => {
+        toast.error(err.message || "Failed to load supplier profile");
+      })
+      .finally(() => setIsLoading(false));
+  };
 
   useEffect(() => {
-    setTitle(`${supplier.supplierName}`);
-    setBadge("Supplier Profile");
+    setTitle("Supplier Profile");
+    setBadge("Accounting");
     setDateFilter(""); 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supplier]);
+  }, [setTitle, setBadge, setDateFilter]);
 
-  const poColumns: ColumnDef<PurchaseOrderRecord>[] = [
+  useEffect(() => {
+    loadSupplier();
+  }, [params.id, setTitle]);
+
+  const poColumns: ColumnDef<any>[] = [
     {
       accessorKey: "poNumber",
       header: "PO Number",
-      cell: ({ row }) => <span className="font-bold text-emerald-600">{row.original.poNumber}</span>
+      cell: ({ row }) => (
+        <span 
+          onClick={() => router.push(`/admin/accounting/purchase/${row.original.id}`)}
+          className="font-bold text-emerald-600 cursor-pointer hover:underline"
+        >
+          {row.original.poNumber}
+        </span>
+      ),
     },
     {
-      accessorKey: "date",
+      accessorKey: "orderDate",
       header: "Date",
+      cell: ({ row }) => <span>{new Date(row.original.orderDate).toLocaleDateString("en-GB")}</span>,
     },
     {
       accessorKey: "grandTotal",
       header: "Total",
-      cell: ({ row }) => <span className="font-bold">৳{row.original.grandTotal.toLocaleString()}</span>
+      cell: ({ row }) => <span className="font-bold">৳{Number(row.original.grandTotal).toLocaleString()}</span>,
     },
     {
-      accessorKey: "due",
+      accessorKey: "dueAmount",
       header: "Due",
-      cell: ({ row }) => <span className={`font-semibold ${row.original.due > 0 ? "text-rose-600" : "text-emerald-600"}`}>৳{row.original.due.toLocaleString()}</span>
+      cell: ({ row }) => {
+        const due = Number(row.original.dueAmount || 0);
+        return <span className={`font-semibold ${due > 0 ? "text-rose-600" : "text-emerald-600"}`}>৳{due.toLocaleString()}</span>;
+      },
     },
     {
       accessorKey: "status",
@@ -55,140 +83,155 @@ export default function SupplierProfilePage() {
       cell: ({ row }) => (
         <StatusBadge 
           status={row.original.status} 
-          type={row.original.status === "Received" ? "success" : "warning"} 
+          type={row.original.status === "RECEIVED" ? "success" : "warning"} 
         />
-      )
+      ),
     },
   ];
 
-  const paymentColumns: ColumnDef<SupplierPaymentRecord>[] = [
+  const paymentColumns: ColumnDef<any>[] = [
     {
-      accessorKey: "paymentId",
-      header: "Payment ID",
-      cell: ({ row }) => <span className="font-bold text-blue-600">{row.original.paymentId}</span>
+      accessorKey: "receiptNo",
+      header: "Receipt No",
+      cell: ({ row }) => <span className="font-mono text-xs font-bold text-slate-800">{row.original.receiptNo}</span>,
     },
     {
-      accessorKey: "date",
+      accessorKey: "paymentDate",
       header: "Date",
+      cell: ({ row }) => <span>{new Date(row.original.paymentDate).toLocaleDateString("en-GB")}</span>,
     },
     {
-      accessorKey: "wallet",
-      header: "Wallet",
-    },
-    {
-      accessorKey: "amount",
+      accessorKey: "amountPaid",
       header: "Amount Paid",
-      cell: ({ row }) => <span className="font-bold text-emerald-600">৳{row.original.amount.toLocaleString()}</span>
-    }
+      cell: ({ row }) => <span className="font-bold text-emerald-600">৳{Number(row.original.amountPaid).toLocaleString()}</span>,
+    },
+    {
+      accessorKey: "paymentMethod",
+      header: "Method",
+      cell: ({ row }) => <span>{row.original.paymentMethod}</span>,
+    },
+    {
+      accessorKey: "walletType",
+      header: "Wallet",
+      cell: ({ row }) => <span>{row.original.walletType?.name || "Direct Cash"}</span>,
+    },
   ];
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-44 w-full rounded-2xl" />
+        <Skeleton className="h-64 w-full rounded-2xl" />
+      </div>
+    );
+  }
+
+  if (!supplier) {
+    return <div className="p-6 text-slate-500">Supplier not found.</div>;
+  }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <button 
           onClick={() => router.back()}
           className="flex items-center gap-2 text-slate-600 hover:text-emerald-600 font-medium transition-colors text-sm"
         >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Suppliers
+          <ArrowLeft className="w-4 h-4" /> Back to Suppliers
         </button>
-        <button 
-          onClick={() => router.push(`/admin/accounting/suppliers/${supplier.id}/edit`)}
-          className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium rounded-lg transition-colors text-sm flex items-center gap-2 shadow-sm"
-        >
-          <Edit className="w-4 h-4" /> Edit Supplier
-        </button>
+        <div className="flex items-center gap-2">
+          {Number(supplier.totalDue || 0) > 0 && (
+            <button 
+              onClick={() => setPaymentDialogOpen(true)}
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm"
+            >
+              <Banknote className="w-4 h-4" /> Make Payment
+            </button>
+          )}
+          <button 
+            onClick={() => router.push(`/admin/accounting/suppliers/${supplier.id}/edit`)}
+            className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          >
+            <Edit className="w-4 h-4" /> Edit Profile
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        
-        {/* Left Col - Profile */}
-        <div className="md:col-span-1 space-y-6">
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm text-center">
-            <div className="w-20 h-20 bg-emerald-50 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-emerald-100">
-              <Building2 className="w-8 h-8 text-emerald-600" />
-            </div>
-            <h2 className="text-xl font-bold text-slate-800">{supplier.supplierName}</h2>
-            <p className="text-sm text-slate-500 mb-4">{supplier.contactPerson}</p>
-            <StatusBadge status={supplier.status} type={supplier.status === "Active" ? "success" : "danger"} />
+      {/* Supplier Info Header Card */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+        <div className="flex items-center gap-4">
+          <div className="w-16 h-16 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center font-bold text-2xl text-emerald-700">
+            {supplier.name.charAt(0)}
           </div>
-
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-            <h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-2">Contact Info</h3>
-            <div className="flex items-center gap-3 text-sm text-slate-600">
-              <Phone className="w-4 h-4 text-slate-400 shrink-0" />
-              <span>{supplier.phone}</span>
+          <div>
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl font-bold text-slate-900">{supplier.name}</h2>
+              <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                supplier.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"
+              }`}>
+                {supplier.status}
+              </span>
             </div>
-            <div className="flex items-center gap-3 text-sm text-slate-600">
-              <Mail className="w-4 h-4 text-slate-400 shrink-0" />
-              <span className="truncate">{supplier.email || "N/A"}</span>
-            </div>
-            <div className="flex items-start gap-3 text-sm text-slate-600">
-              <MapPin className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
-              <span className="leading-relaxed">{supplier.address}</span>
-            </div>
-            {supplier.website && (
-              <div className="flex items-center gap-3 text-sm text-slate-600">
-                <Globe className="w-4 h-4 text-slate-400 shrink-0" />
-                <a href={supplier.website} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{supplier.website}</a>
-              </div>
-            )}
+            <p className="text-sm text-slate-500 mt-1 flex items-center gap-4 flex-wrap">
+              {supplier.contactPerson && <span className="flex items-center gap-1"><Building2 className="w-3.5 h-3.5" /> {supplier.contactPerson}</span>}
+              <span className="flex items-center gap-1 font-mono"><Phone className="w-3.5 h-3.5" /> {supplier.phone}</span>
+              {supplier.email && <span className="flex items-center gap-1"><Mail className="w-3.5 h-3.5" /> {supplier.email}</span>}
+              {supplier.address && <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {supplier.address}</span>}
+            </p>
           </div>
         </div>
 
-        {/* Right Col - Stats & Tabs */}
-        <div className="md:col-span-2 space-y-6">
-          
-          <div className="grid grid-cols-2 gap-4">
-            <ColoredStatCard 
-              icon={<ShoppingBag className="w-5 h-5" />}
-              label="Total Purchases"
-              value={`৳${supplier.totalPurchase.toLocaleString()}`}
-              colorTint="blue"
-            />
-            <ColoredStatCard 
-              icon={<CreditCard className="w-5 h-5" />}
-              label="Outstanding Due"
-              value={`৳${supplier.due.toLocaleString()}`}
-              colorTint={supplier.due > 0 ? "red" : "green"}
-            />
+        <div className="flex gap-4">
+          <div className="text-right border-l border-slate-100 pl-6">
+            <span className="text-xs text-slate-400 font-semibold uppercase">Total Outstanding Due</span>
+            <p className={`text-2xl font-bold ${Number(supplier.totalDue) > 0 ? "text-rose-600" : "text-emerald-600"}`}>
+              ৳{Number(supplier.totalDue || 0).toLocaleString()}
+            </p>
           </div>
-
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="flex border-b border-slate-100">
-              <button 
-                onClick={() => setActiveTab("purchases")}
-                className={`flex-1 py-4 text-sm font-bold transition-colors ${activeTab === "purchases" ? "text-emerald-600 border-b-2 border-emerald-600" : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"}`}
-              >
-                Purchase Orders ({supplierPOs.length})
-              </button>
-              <button 
-                onClick={() => setActiveTab("payments")}
-                className={`flex-1 py-4 text-sm font-bold transition-colors ${activeTab === "payments" ? "text-emerald-600 border-b-2 border-emerald-600" : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"}`}
-              >
-                Payment History ({supplierPayments.length})
-              </button>
-            </div>
-            <div className="p-1">
-              {activeTab === "purchases" ? (
-                <DataTable 
-                  columns={poColumns} 
-                  data={supplierPOs} 
-                  pageSize={5}
-                />
-              ) : (
-                <DataTable 
-                  columns={paymentColumns} 
-                  data={supplierPayments} 
-                  pageSize={5}
-                />
-              )}
-            </div>
-          </div>
-          
         </div>
       </div>
+
+      {/* Tabs */}
+      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-6">
+        <div className="flex border-b border-slate-100 gap-6">
+          <button
+            onClick={() => setActiveTab("purchases")}
+            className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-colors ${
+              activeTab === "purchases" 
+                ? "border-emerald-600 text-emerald-600" 
+                : "border-transparent text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            <ShoppingBag className="w-4 h-4" /> Purchase Orders ({supplier.purchaseOrders?.length || 0})
+          </button>
+          <button
+            onClick={() => setActiveTab("payments")}
+            className={`pb-3 text-sm font-semibold flex items-center gap-2 border-b-2 transition-colors ${
+              activeTab === "payments" 
+                ? "border-emerald-600 text-emerald-600" 
+                : "border-transparent text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            <CreditCard className="w-4 h-4" /> Payment Receipts ({supplier.payments?.length || 0})
+          </button>
+        </div>
+
+        {activeTab === "purchases" ? (
+          <DataTable columns={poColumns} data={supplier.purchaseOrders || []} pageSize={10} />
+        ) : (
+          <DataTable columns={paymentColumns} data={supplier.payments || []} pageSize={10} />
+        )}
+      </div>
+
+      <PaymentSettlementDialog
+        open={paymentDialogOpen}
+        onOpenChange={setPaymentDialogOpen}
+        entityType="supplier"
+        entityId={supplier.id}
+        entityName={supplier.name}
+        totalDue={Number(supplier.totalDue || 0)}
+        onPaymentSuccess={loadSupplier}
+      />
     </div>
   );
 }

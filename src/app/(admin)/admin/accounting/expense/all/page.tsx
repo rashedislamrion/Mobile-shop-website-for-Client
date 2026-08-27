@@ -1,14 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
-import { DataTable, StatusBadge } from "@/components/admin/DataTable";
+import { DataTable, StatusBadge, ActionDropdown } from "@/components/admin/DataTable";
 import { FilterBar } from "@/components/admin/FilterBar";
-import { mockExpenses, ExpenseRecord } from "@/lib/mock-data/accounting/expenses";
-import { mockExpenseCategories } from "@/lib/mock-data/accounting/expense-categories";
-import { mockWalletTypes } from "@/lib/mock-data/accounting/wallet-types";
+import { FilterConfig, StatusVariant, TableAction } from "@/types/table";
 import { ColumnDef } from "@tanstack/react-table";
-import { Plus } from "lucide-react";
+import { Plus, CheckCircle, Trash2, Receipt } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -18,87 +16,259 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api-client";
+
+interface ExpenseItem {
+  id: string;
+  referenceNo: string;
+  amount: number | string;
+  description: string;
+  date: string;
+  status: "PAID" | "PENDING";
+  attachment?: string | null;
+  category?: { id: string; name: string };
+  branch?: { id: string; name: string; code: string } | null;
+  walletType?: { id: string; name: string } | null;
+  recordedBy?: { id: string; name: string };
+}
 
 export default function AllExpensesPage() {
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
-  const [localData, setLocalData] = useState<ExpenseRecord[]>(mockExpenses);
-  
+  const [data, setData] = useState<ExpenseItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filters, setFilters] = useState<Record<string, unknown>>({});
+
+  const [categories, setCategories] = useState<any[]>([]);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [wallets, setWallets] = useState<any[]>([]);
+
   // Dialog State
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [formData, setFormData] = useState<Partial<ExpenseRecord>>({
-    date: new Date().toISOString().split("T")[0],
-    category: "",
+  const [formData, setFormData] = useState({
+    categoryId: "",
+    branchId: "",
     amount: 0,
-    paidVia: "",
+    walletTypeId: "",
     description: "",
-    status: "Paid",
-    branch: "Dhaka Main Branch"
+    status: "PAID" as "PAID" | "PENDING",
+    date: new Date().toISOString().split("T")[0],
   });
+
+  // Mark Paid Dialog
+  const [payModalExpense, setPayModalExpense] = useState<ExpenseItem | null>(null);
+  const [payWalletId, setPayWalletId] = useState("");
 
   useEffect(() => {
     setTitle("All Expenses");
     setBadge("Accounting");
-    setDateFilter("This Month"); 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setDateFilter(""); 
+  }, [setTitle, setBadge, setDateFilter]);
+
+  useEffect(() => {
+    Promise.all([
+      apiGet<any[]>("/expense-categories"),
+      apiGet<any[]>("/branches/public"),
+      apiGet<any[]>("/wallet-types"),
+    ])
+      .then(([catRes, branchRes, walletRes]) => {
+        if (Array.isArray(catRes)) setCategories(catRes);
+        if (Array.isArray(branchRes)) setBranches(branchRes);
+        if (Array.isArray(walletRes)) {
+          setWallets(walletRes);
+          if (walletRes.length > 0) {
+            setFormData((prev) => ({ ...prev, walletTypeId: walletRes[0].id }));
+            setPayWalletId(walletRes[0].id);
+          }
+        }
+      })
+      .catch(() => {});
   }, []);
 
-  const handleSave = () => {
-    if (!formData.category || !formData.amount || !formData.description) {
-      toast.error("Please fill all required fields");
+  const loadData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const params: Record<string, any> = {};
+
+      if (filters.category) params.category = filters.category;
+      if (filters.branch) params.branch = filters.branch;
+      if (filters.status) params.status = (filters.status as string).toUpperCase();
+      if (searchQuery.trim()) params.search = searchQuery.trim();
+
+      const res = await apiGet<{ data: ExpenseItem[] }>("/expenses", params);
+      setData(res?.data || []);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load expenses");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [filters, searchQuery]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const handleSave = async () => {
+    if (!formData.categoryId || !formData.amount || Number(formData.amount) <= 0 || !formData.description) {
+      toast.error("Please fill in category, amount, and description");
       return;
     }
 
-    const newRecord: ExpenseRecord = {
-      ...formData,
-      id: `e${Date.now()}`,
-      referenceNo: `EXP-${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`,
-      recordedBy: "Admin User", 
-    } as ExpenseRecord;
-    
-    setLocalData(prev => [newRecord, ...prev]);
-    toast.success("Expense recorded successfully");
-    setDialogOpen(false);
+    try {
+      await apiPost("/expenses", {
+        categoryId: formData.categoryId,
+        branchId: formData.branchId || undefined,
+        amount: Number(formData.amount),
+        walletTypeId: formData.status === "PAID" ? formData.walletTypeId : undefined,
+        description: formData.description,
+        status: formData.status,
+        date: formData.date,
+      });
+
+      toast.success("Expense recorded successfully");
+      setDialogOpen(false);
+      setFormData({
+        categoryId: categories[0]?.id || "",
+        branchId: "",
+        amount: 0,
+        walletTypeId: wallets[0]?.id || "",
+        description: "",
+        status: "PAID",
+        date: new Date().toISOString().split("T")[0],
+      });
+      loadData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save expense");
+    }
   };
 
-  const columns: ColumnDef<ExpenseRecord>[] = [
+  const handleMarkPaid = async () => {
+    if (!payModalExpense) return;
+    try {
+      await apiPatch(`/expenses/${payModalExpense.id}/mark-paid`, {
+        walletTypeId: payWalletId || undefined,
+      });
+      toast.success("Expense marked as PAID");
+      setPayModalExpense(null);
+      loadData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to mark expense as paid");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    try {
+      await apiDelete(`/expenses/${id}`);
+      toast.success("Expense record removed");
+      loadData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete expense");
+    }
+  };
+
+  const filterConfigs: FilterConfig[] = useMemo(() => [
+    {
+      type: "select",
+      label: "Category",
+      key: "category",
+      options: categories.map((c) => ({ label: c.name, value: c.id })),
+    },
+    {
+      type: "select",
+      label: "Branch",
+      key: "branch",
+      options: branches.map((b) => ({ label: b.name, value: b.id })),
+    },
+    {
+      type: "select",
+      label: "Status",
+      key: "status",
+      options: [
+        { label: "Paid", value: "PAID" },
+        { label: "Pending", value: "PENDING" },
+      ],
+    },
+  ], [categories, branches]);
+
+  const createActions = (): TableAction[] => [
+    {
+      label: "Mark as Paid",
+      icon: <CheckCircle className="w-4 h-4 text-emerald-600" />,
+      onClick: (row) => setPayModalExpense(row),
+    },
+    {
+      label: "Delete",
+      icon: <Trash2 className="w-4 h-4 text-red-500" />,
+      variant: "destructive",
+      onClick: (row) => handleDelete(row.id),
+    },
+  ];
+
+  const getStatusVariant = (status: string): StatusVariant => {
+    switch (status) {
+      case "PAID": return "success";
+      case "PENDING": return "warning";
+      default: return "default";
+    }
+  };
+
+  const columns: ColumnDef<ExpenseItem>[] = [
+    {
+      accessorKey: "referenceNo",
+      header: "Ref No",
+      cell: ({ row }) => (
+        <span className="font-mono font-bold text-slate-800 text-xs">
+          {row.original.referenceNo}
+        </span>
+      ),
+    },
     {
       accessorKey: "date",
-      header: "Date & Ref",
+      header: "Date",
       cell: ({ row }) => (
-        <div>
-          <div className="font-medium text-slate-800">{row.original.date}</div>
-          <div className="text-xs text-slate-500">{row.original.referenceNo}</div>
-        </div>
-      )
+        <span className="text-slate-600 text-sm whitespace-nowrap">
+          {new Date(row.original.date).toLocaleDateString("en-GB")}
+        </span>
+      ),
     },
     {
       accessorKey: "category",
-      header: "Category & Branch",
+      header: "Category",
       cell: ({ row }) => (
-        <div>
-          <div className="font-semibold text-slate-800">{row.original.category}</div>
-          <div className="text-xs text-slate-500">{row.original.branch}</div>
-        </div>
-      )
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-700">
+          {row.original.category?.name || "Uncategorized"}
+        </span>
+      ),
     },
     {
       accessorKey: "description",
       header: "Description",
       cell: ({ row }) => (
-        <div className="max-w-[250px] truncate" title={row.original.description}>
-          {row.original.description}
+        <div>
+          <p className="font-medium text-slate-800 text-sm">{row.original.description}</p>
+          <p className="text-xs text-slate-400">
+            {row.original.branch?.name || "Global"} • By {row.original.recordedBy?.name || "System"}
+          </p>
         </div>
-      )
+      ),
+    },
+    {
+      accessorKey: "walletType",
+      header: "Paid Via",
+      cell: ({ row }) => (
+        <span className="text-slate-600 text-xs font-medium">
+          {row.original.walletType?.name || <span className="text-slate-400 italic">Unpaid</span>}
+        </span>
+      ),
     },
     {
       accessorKey: "amount",
       header: "Amount",
-      cell: ({ row }) => <span className="font-bold text-rose-600">৳{row.original.amount.toLocaleString()}</span>
-    },
-    {
-      accessorKey: "paidVia",
-      header: "Paid Via",
-      cell: ({ row }) => <span className="text-sm text-slate-700">{row.original.paidVia || "N/A"}</span>
+      cell: ({ row }) => (
+        <span className="font-bold text-slate-900 text-base">
+          ৳{Number(row.original.amount).toLocaleString()}
+        </span>
+      ),
     },
     {
       accessorKey: "status",
@@ -106,180 +276,230 @@ export default function AllExpensesPage() {
       cell: ({ row }) => (
         <StatusBadge 
           status={row.original.status} 
-          type={row.original.status === "Paid" ? "success" : "warning"}
+          type={getStatusVariant(row.original.status)} 
         />
-      )
-    }
+      ),
+    },
+    {
+      id: "actions",
+      header: "Action",
+      cell: ({ row }) => (
+        <div className="flex justify-end">
+          <ActionDropdown actions={createActions()} rowData={row.original} />
+        </div>
+      ),
+    },
   ];
 
   return (
     <div className="space-y-6">
-      
-      {/* Add Expense Dialog */}
+      <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800">All Expenses</h2>
+          <p className="text-xs text-slate-500">Record, filter, and track store and headquarters disbursements</p>
+        </div>
+        <button
+          onClick={() => setDialogOpen(true)}
+          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+        >
+          <Plus className="w-4 h-4" /> Record Expense
+        </button>
+      </div>
+
+      <FilterBar 
+        searchPlaceholder="Search by reference, description..."
+        filters={filterConfigs}
+        onSearchChange={(val) => setSearchQuery(val)}
+        onFilterChange={(key, val) => setFilters((prev) => ({ ...prev, [key]: val }))}
+        onReset={() => {
+          setSearchQuery("");
+          setFilters({});
+        }}
+      />
+
+      <DataTable 
+        columns={columns} 
+        data={data} 
+        pageSize={10}
+      />
+
+      {/* Record Expense Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[450px]">
           <DialogHeader>
-            <DialogTitle>Record Expense</DialogTitle>
+            <DialogTitle>Record New Expense</DialogTitle>
           </DialogHeader>
-          <div className="pt-4 space-y-4">
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Date *</label>
-                <Input 
+          <div className="space-y-4 pt-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1.5">Expense Date *</label>
+                <Input
                   type="date"
                   value={formData.date}
-                  onChange={e => setFormData({ ...formData, date: e.target.value })}
+                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                 />
               </div>
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Amount (৳) *</label>
-                <Input 
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1.5">Category *</label>
+                <select
+                  value={formData.categoryId}
+                  onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
+                  className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm"
+                >
+                  <option value="">Select Category</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1.5">Amount (৳) *</label>
+                <Input
                   type="number"
-                  value={formData.amount}
-                  onChange={e => setFormData({ ...formData, amount: Number(e.target.value) })}
+                  placeholder="0.00"
+                  value={formData.amount || ""}
+                  onChange={(e) => setFormData({ ...formData, amount: Number(e.target.value) })}
                 />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700 block mb-1.5">Branch</label>
+                <select
+                  value={formData.branchId}
+                  onChange={(e) => setFormData({ ...formData, branchId: e.target.value })}
+                  className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm"
+                >
+                  <option value="">Global / Headquarters</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Category *</label>
-              <select 
-                className="w-full h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                value={formData.category}
-                onChange={e => setFormData({ ...formData, category: e.target.value })}
-              >
-                <option value="">Select Category...</option>
-                {mockExpenseCategories.map(c => (
-                  <option key={c.id} value={c.name}>{c.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Paid Via (Wallet)</label>
-              <select 
-                className="w-full h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                value={formData.paidVia}
-                onChange={e => setFormData({ ...formData, paidVia: e.target.value })}
-              >
-                <option value="">Select Wallet...</option>
-                {mockWalletTypes.map(w => (
-                  <option key={w.id} value={w.name}>{w.name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Branch</label>
-              <select 
-                className="w-full h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                value={formData.branch}
-                onChange={e => setFormData({ ...formData, branch: e.target.value })}
-              >
-                <option value="Global">Global</option>
-                <option value="Dhaka Main Branch">Dhaka Main Branch</option>
-                <option value="Chattogram Branch">Chattogram Branch</option>
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Description *</label>
-              <Textarea 
-                placeholder="What was this expense for?"
-                value={formData.description}
-                onChange={e => setFormData({ ...formData, description: e.target.value })}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">Status</label>
-              <div className="flex gap-2">
-                <button 
-                  onClick={() => setFormData({ ...formData, status: "Paid" })}
-                  className={`flex-1 py-2 rounded-md text-sm font-medium border transition-colors ${
-                    formData.status === "Paid" ? "bg-emerald-50 border-emerald-500 text-emerald-700" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1.5">Payment Status *</label>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, status: "PAID" })}
+                  className={`py-2 px-3 rounded-lg text-sm font-semibold border flex items-center justify-center gap-2 transition-colors ${
+                    formData.status === "PAID"
+                      ? "bg-emerald-50 border-emerald-500 text-emerald-700"
+                      : "border-slate-200 text-slate-600 hover:bg-slate-50"
                   }`}
                 >
                   Paid
                 </button>
-                <button 
-                  onClick={() => setFormData({ ...formData, status: "Pending" })}
-                  className={`flex-1 py-2 rounded-md text-sm font-medium border transition-colors ${
-                    formData.status === "Pending" ? "bg-amber-50 border-amber-500 text-amber-700" : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, status: "PENDING" })}
+                  className={`py-2 px-3 rounded-lg text-sm font-semibold border flex items-center justify-center gap-2 transition-colors ${
+                    formData.status === "PENDING"
+                      ? "bg-amber-50 border-amber-500 text-amber-700"
+                      : "border-slate-200 text-slate-600 hover:bg-slate-50"
                   }`}
                 >
                   Pending
                 </button>
               </div>
+
+              {formData.status === "PAID" && (
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1.5">Disburse From Wallet *</label>
+                  <select
+                    value={formData.walletTypeId}
+                    onChange={(e) => setFormData({ ...formData, walletTypeId: e.target.value })}
+                    className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm"
+                  >
+                    {wallets.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name} (Balance: ৳{Number(w.currentBalance).toLocaleString()})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
-            <div className="flex justify-end gap-3 pt-4">
-              <button 
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1.5">Description / Purpose *</label>
+              <Textarea
+                placeholder="Details of the expenditure..."
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
                 onClick={() => setDialogOpen(false)}
-                className="px-4 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium rounded-lg transition-colors text-sm"
+                className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 text-slate-700"
               >
                 Cancel
               </button>
-              <button 
+              <button
+                type="button"
                 onClick={handleSave}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors text-sm"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium"
               >
-                Record Expense
+                Save Expense
               </button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
 
-      <div className="flex justify-between items-center">
-        <FilterBar 
-          searchPlaceholder="Search description..."
-          onSearch={() => {}}
-          onReset={() => {}}
-          filters={[
-            {
-              key: "category",
-              label: "Category",
-              options: mockExpenseCategories.map(c => ({ label: c.name, value: c.name }))
-            },
-            {
-              key: "status",
-              label: "Status",
-              options: [
-                { label: "Paid", value: "Paid" },
-                { label: "Pending", value: "Pending" }
-              ]
-            }
-          ]}
-        />
-        <button 
-          onClick={() => {
-            setFormData({
-              date: new Date().toISOString().split("T")[0],
-              category: "",
-              amount: 0,
-              paidVia: "",
-              description: "",
-              status: "Paid",
-              branch: "Dhaka Main Branch"
-            });
-            setDialogOpen(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors text-sm whitespace-nowrap ml-4 shrink-0"
-        >
-          <Plus className="w-4 h-4" /> Add Expense
-        </button>
-      </div>
+      {/* Mark Paid Dialog */}
+      <Dialog open={Boolean(payModalExpense)} onOpenChange={(open) => !open && setPayModalExpense(null)}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Settle Pending Expense</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <p className="text-sm text-slate-600">
+              Disburse <strong className="text-slate-900">৳{Number(payModalExpense?.amount).toLocaleString()}</strong> for <strong className="text-slate-900">{payModalExpense?.description}</strong>.
+            </p>
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden p-5">
-        <DataTable 
-          columns={columns} 
-          data={localData} 
-          pageSize={10}
-        />
-      </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1.5">Disburse From Wallet</label>
+              <select
+                value={payWalletId}
+                onChange={(e) => setPayWalletId(e.target.value)}
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm"
+              >
+                {wallets.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name} (Balance: ৳{Number(w.currentBalance).toLocaleString()})
+                  </option>
+                ))}
+              </select>
+            </div>
 
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setPayModalExpense(null)}
+                className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleMarkPaid}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium"
+              >
+                Confirm Settlement
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

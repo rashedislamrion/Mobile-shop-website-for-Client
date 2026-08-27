@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, Menu, History, Store, ChevronDown, Palette } from "lucide-react";
+import { Search, Menu, History, Store, ChevronDown, Palette, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -22,25 +22,52 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AdminSidebar } from "./AdminSidebar";
 import { useAdminPage } from "@/contexts/AdminPageContext";
-import { useState } from "react";
+import { useAuth } from "@/context/AuthContext";
+import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
 
-const mockBranches = [
-  "Global Admin",
-  "Motijheel Plaza Shopping Complex",
-  "Gulistan Shopping Complex",
-  "Eastern Plaza Shopping Complex"
-];
-
-const mockThemes = [
-  { name: "Emerald", color: "bg-emerald-600" },
-  { name: "Purple", color: "bg-purple-600" },
-  { name: "Blue", color: "bg-blue-600" },
-  { name: "Rose", color: "bg-rose-600" },
+const themePalette = [
+  { name: "Emerald", bgClass: "bg-emerald-600", primary: "#059669" },
+  { name: "Purple", bgClass: "bg-purple-600", primary: "#7c3aed" },
+  { name: "Blue", bgClass: "bg-blue-600", primary: "#2563eb" },
+  { name: "Rose", bgClass: "bg-rose-600", primary: "#e11d48" },
 ];
 
 export function AdminTopbar() {
-  const { title, badge, isMobileSidebarOpen, setIsMobileSidebarOpen, dateFilter, setDateFilter } = useAdminPage();
-  const [activeBranch, setActiveBranch] = useState(mockBranches[0]);
+  const {
+    title,
+    badge,
+    isMobileSidebarOpen,
+    setIsMobileSidebarOpen,
+    dateFilter,
+    setDateFilter,
+    selectedBranchId,
+    selectedBranchName,
+    selectBranch,
+    branches,
+  } = useAdminPage();
+  const { user, logout } = useAuth();
+  const router = useRouter();
+  const [activeTheme, setActiveTheme] = useState("Emerald");
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("admin_theme_name");
+    if (savedTheme) {
+      setActiveTheme(savedTheme);
+    }
+  }, []);
+
+  const handleSelectTheme = (theme: typeof themePalette[0]) => {
+    setActiveTheme(theme.name);
+    localStorage.setItem("admin_theme_name", theme.name);
+    toast.success(`${theme.name} theme applied`);
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    router.push("/admin/login");
+  };
 
   return (
     <header className="h-16 border-b border-slate-200 bg-white flex items-center justify-between px-4 lg:px-6 sticky top-0 z-30">
@@ -99,7 +126,11 @@ export function AdminTopbar() {
         </Button>
 
         {/* POS Button */}
-        <Button className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-full h-9 px-4 hidden sm:flex">
+        <Button 
+          onClick={() => router.push("/admin/pos")}
+          title="Open POS Terminal"
+          className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-full h-9 px-4 hidden sm:flex shadow-sm transition-colors"
+        >
           <Store className="w-4 h-4 mr-2" />
           POS
         </Button>
@@ -110,22 +141,36 @@ export function AdminTopbar() {
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="h-9 rounded-full border-slate-200 text-slate-700 font-normal">
                 <Store className="w-4 h-4 mr-2 text-emerald-600" />
-                <span className="truncate max-w-[150px]">{activeBranch}</span>
+                <span className="truncate max-w-[150px]">{selectedBranchName || "All Branches"}</span>
                 <ChevronDown className="w-4 h-4 ml-2 text-slate-400" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-[280px]">
-              <DropdownMenuLabel>Select Branch</DropdownMenuLabel>
+              <DropdownMenuLabel>Select Branch Scope</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {mockBranches.map(branch => (
-                <DropdownMenuItem 
-                  key={branch} 
-                  className={activeBranch === branch ? 'bg-emerald-50 text-emerald-700 font-medium' : ''}
-                  onClick={() => setActiveBranch(branch)}
-                >
-                  {branch}
+              <DropdownMenuItem 
+                className={!selectedBranchId ? 'bg-emerald-50 text-emerald-700 font-semibold' : ''}
+                onClick={() => selectBranch("", "All Branches")}
+              >
+                🌐 All Branches (Global)
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              {branches.length > 0 ? (
+                branches.map(branch => (
+                  <DropdownMenuItem 
+                    key={branch.id} 
+                    className={selectedBranchId === branch.id ? 'bg-emerald-50 text-emerald-700 font-medium' : ''}
+                    onClick={() => selectBranch(branch.id, branch.name)}
+                  >
+                    <Store className="w-3.5 h-3.5 mr-2 text-slate-400" />
+                    {branch.name}
+                  </DropdownMenuItem>
+                ))
+              ) : (
+                <DropdownMenuItem className="text-slate-400 text-xs">
+                  Loading branches...
                 </DropdownMenuItem>
-              ))}
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -135,24 +180,26 @@ export function AdminTopbar() {
           <DropdownMenuTrigger asChild>
             <button className="flex items-center gap-2 hover:bg-slate-50 p-1 rounded-full pr-3 transition-colors text-left outline-none border border-transparent focus-visible:ring-2 focus-visible:ring-emerald-500">
               <Avatar className="h-9 w-9 border border-slate-200">
-                <AvatarImage src="https://i.pravatar.cc/150?u=admin_bijoy" alt="Admin" />
-                <AvatarFallback className="bg-emerald-100 text-emerald-700 font-bold">BS</AvatarFallback>
+                <AvatarImage src={`https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || "Admin")}&background=10b981&color=fff`} alt={user?.name || "Admin"} />
+                <AvatarFallback className="bg-emerald-100 text-emerald-700 font-bold">
+                  {(user?.name || "A").charAt(0)}
+                </AvatarFallback>
               </Avatar>
               <div className="hidden md:flex flex-col">
-                <span className="text-sm font-bold text-slate-800 leading-none">Bijoy Chandra Sarkar</span>
-                <span className="text-xs text-slate-500 mt-1 leading-none">SEO</span>
+                <span className="text-sm font-bold text-slate-800 leading-none">{user?.name || "Admin Staff"}</span>
+                <span className="text-xs text-slate-500 mt-1 leading-none">{user?.role?.name || "Administrator"}</span>
               </div>
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-56" align="end" forceMount>
             <DropdownMenuLabel className="font-normal md:hidden">
               <div className="flex flex-col space-y-1">
-                <p className="text-sm font-bold leading-none text-slate-900">Bijoy Chandra Sarkar</p>
-                <p className="text-xs leading-none text-slate-500">SEO</p>
+                <p className="text-sm font-bold leading-none text-slate-900">{user?.name || "Admin Staff"}</p>
+                <p className="text-xs leading-none text-slate-500">{user?.role?.name || "Administrator"}</p>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator className="md:hidden" />
-            <DropdownMenuItem>My Profile</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => router.push("/admin")}>Dashboard</DropdownMenuItem>
             
             {/* Nested Popover for Color Palette inside Dropdown (using sub menu pattern or just popover) */}
             <Popover>
@@ -162,16 +209,23 @@ export function AdminTopbar() {
                   Change Color Palette
                 </div>
               </PopoverTrigger>
-              <PopoverContent side="left" className="w-40 p-2">
+              <PopoverContent side="left" className="w-44 p-2 bg-white border border-slate-200 shadow-md">
                 <div className="grid grid-cols-2 gap-2">
-                  {mockThemes.map(theme => (
+                  {themePalette.map(theme => (
                     <button 
                       key={theme.name}
-                      className="flex flex-col items-center gap-1 p-2 rounded hover:bg-slate-50 transition-colors"
+                      onClick={() => handleSelectTheme(theme)}
+                      className={`flex flex-col items-center gap-1.5 p-2 rounded-lg transition-colors border ${
+                        activeTheme === theme.name 
+                          ? "bg-slate-50 border-slate-300 font-semibold" 
+                          : "hover:bg-slate-50 border-transparent"
+                      }`}
                       title={theme.name}
                     >
-                      <div className={`w-8 h-8 rounded-full ${theme.color}`} />
-                      <span className="text-xs text-slate-500">{theme.name}</span>
+                      <div className={`w-7 h-7 rounded-full ${theme.bgClass} flex items-center justify-center text-white shadow-sm`}>
+                        {activeTheme === theme.name && <Check className="w-3.5 h-3.5" />}
+                      </div>
+                      <span className="text-xs text-slate-600">{theme.name}</span>
                     </button>
                   ))}
                 </div>
@@ -179,7 +233,10 @@ export function AdminTopbar() {
             </Popover>
 
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-danger focus:text-danger focus:bg-danger/5">
+            <DropdownMenuItem 
+              onClick={handleLogout}
+              className="text-danger focus:text-danger focus:bg-danger/5 cursor-pointer font-medium"
+            >
               Logout
             </DropdownMenuItem>
           </DropdownMenuContent>

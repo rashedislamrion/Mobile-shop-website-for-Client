@@ -11,18 +11,24 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useMockAuth } from "@/context/MockAuthContext";
+import { useAuth } from "@/context/AuthContext";
+import { apiPost } from "@/lib/api-client";
 
-const registerSchema = z.object({
-  fullName: z.string().min(2, "Full Name must be at least 2 characters"),
-  email: z.string().email("Invalid email format").optional().or(z.literal("")),
-  phone: z.string().min(11, "Phone number must be at least 11 digits"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  confirmPassword: z.string()
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "Passwords do not match",
-  path: ["confirmPassword"],
-});
+const registerSchema = z
+  .object({
+    fullName: z.string().min(2, "Full Name must be at least 2 characters"),
+    email: z.string().email("Please enter a valid email address"),
+    phone: z.string().min(11, "Phone number must be at least 11 digits"),
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .regex(/^(?=.*[A-Za-z])(?=.*\d)/, "Password must contain at least 1 letter and 1 number"),
+    confirmPassword: z.string(),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
 
 type RegisterFormValues = z.infer<typeof registerSchema>;
 
@@ -30,7 +36,7 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const router = useRouter();
-  const { login } = useMockAuth();
+  const { login } = useAuth();
 
   const {
     register,
@@ -41,13 +47,24 @@ export default function RegisterPage() {
   });
 
   const onSubmit = async (data: RegisterFormValues) => {
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    
-    // Mock registration & login success
-    login(data.fullName.split(" ")[0]);
-    toast.success("Account created successfully!");
-    router.push("/account");
+    try {
+      const res = await apiPost<{ accessToken: string }>("/auth/customer/register", {
+        name: data.fullName,
+        email: data.email,
+        phone: data.phone,
+        password: data.password,
+        confirmPassword: data.confirmPassword,
+      });
+
+      if (res?.accessToken) {
+        await login({ emailOrPhone: data.phone, password: data.password }, false);
+      }
+
+      toast.success("Account created successfully!");
+      router.push("/account");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to create account");
+    }
   };
 
   return (
@@ -61,11 +78,11 @@ export default function RegisterPage() {
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
           <div className="space-y-2">
             <Label htmlFor="fullName">Full Name</Label>
-            <Input 
-              id="fullName" 
-              placeholder="e.g. John Doe" 
+            <Input
+              id="fullName"
+              placeholder="e.g. John Doe"
               className={errors.fullName ? "border-danger focus-visible:ring-danger" : ""}
-              {...register("fullName")} 
+              {...register("fullName")}
             />
             {errors.fullName && (
               <p className="text-xs text-danger mt-1">{errors.fullName.message}</p>
@@ -74,25 +91,25 @@ export default function RegisterPage() {
 
           <div className="space-y-2">
             <Label htmlFor="phone">Phone Number</Label>
-            <Input 
-              id="phone" 
-              placeholder="e.g. 01712345678" 
+            <Input
+              id="phone"
+              placeholder="e.g. 01712345678"
               className={errors.phone ? "border-danger focus-visible:ring-danger" : ""}
-              {...register("phone")} 
+              {...register("phone")}
             />
             {errors.phone && (
               <p className="text-xs text-danger mt-1">{errors.phone.message}</p>
             )}
           </div>
-          
+
           <div className="space-y-2">
-            <Label htmlFor="email">Email <span className="text-slate-400 font-normal">(Optional)</span></Label>
-            <Input 
-              id="email" 
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
               type="email"
-              placeholder="e.g. john@example.com" 
+              placeholder="e.g. john@example.com"
               className={errors.email ? "border-danger focus-visible:ring-danger" : ""}
-              {...register("email")} 
+              {...register("email")}
             />
             {errors.email && (
               <p className="text-xs text-danger mt-1">{errors.email.message}</p>
@@ -102,12 +119,12 @@ export default function RegisterPage() {
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
             <div className="relative">
-              <Input 
-                id="password" 
-                type={showPassword ? "text" : "password"} 
-                placeholder="Create a password" 
+              <Input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                placeholder="Create a password (min 8 chars, 1 letter, 1 number)"
                 className={errors.password ? "border-danger focus-visible:ring-danger pr-10" : "pr-10"}
-                {...register("password")} 
+                {...register("password")}
               />
               <button
                 type="button"
@@ -121,16 +138,16 @@ export default function RegisterPage() {
               <p className="text-xs text-danger mt-1">{errors.password.message}</p>
             )}
           </div>
-          
+
           <div className="space-y-2">
             <Label htmlFor="confirmPassword">Confirm Password</Label>
             <div className="relative">
-              <Input 
-                id="confirmPassword" 
-                type={showConfirmPassword ? "text" : "password"} 
-                placeholder="Confirm your password" 
+              <Input
+                id="confirmPassword"
+                type={showConfirmPassword ? "text" : "password"}
+                placeholder="Confirm your password"
                 className={errors.confirmPassword ? "border-danger focus-visible:ring-danger pr-10" : "pr-10"}
-                {...register("confirmPassword")} 
+                {...register("confirmPassword")}
               />
               <button
                 type="button"

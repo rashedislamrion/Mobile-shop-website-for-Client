@@ -261,14 +261,20 @@ export class AuthService {
           branch: true,
         },
       });
-      if (staff) delete (staff as any).passwordHash;
-      return staff;
+      if (staff) {
+        delete (staff as any).passwordHash;
+        return { ...staff, userType: 'STAFF' };
+      }
+      return null;
     } else {
       const customer = await this.prisma.customer.findUnique({
         where: { id: userId },
       });
-      if (customer) delete (customer as any).passwordHash;
-      return customer;
+      if (customer) {
+        delete (customer as any).passwordHash;
+        return { ...customer, userType: 'CUSTOMER' };
+      }
+      return null;
     }
   }
 

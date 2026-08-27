@@ -1,42 +1,68 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { format } from "date-fns";
 import { Calendar, User, Eye, ArrowLeft } from "lucide-react";
-import { mockBlogs } from "@/lib/mock-data/blogs";
-import { BlogCard } from "@/components/storefront/BlogCard";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { apiGet, getImageUrl } from "@/lib/api-client";
+import { BlogCard } from "@/components/storefront/BlogCard";
 
 export default function BlogPostPage({ params }: { params: { slug: string } }) {
-  const blog = mockBlogs.find((b) => b.slug === params.slug);
+  const [blog, setBlog] = useState<any>(null);
+  const [relatedBlogs, setRelatedBlogs] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  if (!blog) {
-    notFound();
+  useEffect(() => {
+    (async () => {
+      try {
+        const [post, all] = await Promise.all([
+          apiGet<any>(`/blogs/${params.slug}`).catch(() => null),
+          apiGet<any>("/blogs?limit=4").catch(() => null),
+        ]);
+        setBlog(post);
+        if (all?.data) {
+          setRelatedBlogs(all.data.filter((b: any) => b.slug !== params.slug).slice(0, 3));
+        }
+      } catch (e) {
+        console.error("Failed to load blog", e);
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+  }, [params.slug]);
+
+  if (isLoading) {
+    return (
+      <div className="container mx-auto px-4 py-8 max-w-4xl space-y-6">
+        <Skeleton className="h-8 w-1/4" />
+        <Skeleton className="h-12 w-3/4 mx-auto" />
+        <Skeleton className="aspect-[21/9] w-full rounded-3xl" />
+        <div className="space-y-3">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+        </div>
+      </div>
+    );
   }
 
-  // Get 3 random related blogs (excluding current)
-  const relatedBlogs = mockBlogs.filter(b => b.id !== blog.id).slice(0, 3);
+  if (!blog) {
+    return (
+      <div className="container mx-auto px-4 py-16 text-center max-w-md">
+        <h2 className="text-2xl font-bold text-slate-800 mb-2">Article Not Found</h2>
+        <p className="text-slate-500 text-sm mb-6">The article you are looking for does not exist or has been removed.</p>
+        <Button asChild>
+          <Link href="/blog">Back to Articles</Link>
+        </Button>
+      </div>
+    );
+  }
 
-  // Generate extended mock content for the post body since mock data just has "Full content goes here..."
-  const extendedContent = `
-    <p>Replacing a mobile component is often seen as a challenging task, but with the right guidance, it becomes much simpler. In this guide, we will break down exactly what you need to know.</p>
-    
-    <h2>The Importance of Quality Parts</h2>
-    <p>Using genuine or high-quality OEM parts ensures that your device retains its original performance and longevity. When you compromise on quality, you might face issues like:</p>
-    <ul>
-      <li>Reduced battery efficiency or dangerous overheating.</li>
-      <li>Touchscreen unresponsiveness or color washing out.</li>
-      <li>Loss of water resistance (IP rating) due to poor adhesives.</li>
-    </ul>
-
-    <h2>Step-by-Step Approach</h2>
-    <p>Always start by turning off the device and removing the SIM tray. Use proper heating tools to soften the adhesive before prying open the back cover or display. It is critical to use plastic pry tools to avoid damaging the internal ribbon cables.</p>
-
-    <blockquote>"A successful repair is 80% preparation and 20% execution." - NovaMobile Expert Technician</blockquote>
-
-    <h2>Conclusion</h2>
-    <p>Remember that patience is key. If you ever feel stuck, it is better to consult a professional rather than forcing a component and causing permanent damage to the motherboard.</p>
-  `;
+  const authorName = typeof blog.author === "string" ? blog.author : blog.author?.name || "NovaMobile Team";
+  const coverImage = blog.coverImage || blog.featuredImage;
+  const viewCount = blog.viewCount ?? blog.views ?? 0;
 
   return (
     <div className="container mx-auto px-4 py-8">
@@ -57,36 +83,46 @@ export default function BlogPostPage({ params }: { params: { slug: string } }) {
           <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-slate-500 font-medium">
             <div className="flex items-center gap-1.5">
               <User className="w-4 h-4" />
-              <span>By {blog.author}</span>
+              <span>By {authorName}</span>
             </div>
             <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
             <div className="flex items-center gap-1.5">
               <Calendar className="w-4 h-4" />
-              <time dateTime={blog.createdAt}>{format(new Date(blog.createdAt), 'MMM dd, yyyy')}</time>
+              <time dateTime={blog.createdAt}>
+                {blog.createdAt ? format(new Date(blog.createdAt), "MMM dd, yyyy") : ""}
+              </time>
             </div>
             <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
             <div className="flex items-center gap-1.5">
               <Eye className="w-4 h-4" />
-              <span>{blog.viewCount.toLocaleString()} views</span>
+              <span>{viewCount.toLocaleString()} views</span>
             </div>
           </div>
         </header>
 
         {/* Cover Image */}
-        <div className="relative w-full aspect-[21/9] rounded-3xl overflow-hidden mb-12 shadow-sm border border-slate-100 bg-slate-50">
-          <Image 
-            src={blog.coverImage || "https://placehold.co/600x400/f1f5f9/94a3b8?text=Blog+Image"} 
-            alt={blog.title}
-            fill
-            className="object-cover"
-            priority
-          />
-        </div>
+        {coverImage ? (
+          <div className="relative w-full aspect-[21/9] rounded-3xl overflow-hidden mb-12 shadow-sm border border-slate-100 bg-slate-50">
+            <img 
+              src={getImageUrl(coverImage)} 
+              alt={blog.title}
+              className="w-full h-full object-cover"
+            />
+          </div>
+        ) : (
+          <div className="relative w-full aspect-[21/9] rounded-3xl overflow-hidden mb-12 shadow-sm border border-slate-100 bg-slate-50">
+            <img 
+              src="https://images.unsplash.com/photo-1511707171634-5f897ff02aa9?w=1200&q=80" 
+              alt={blog.title}
+              className="w-full h-full object-cover"
+            />
+          </div>
+        )}
 
         {/* Content */}
         <div 
-          className="prose prose-lg prose-slate max-w-3xl mx-auto prose-headings:font-bold prose-headings:tracking-tight prose-a:text-primary prose-img:rounded-xl"
-          dangerouslySetInnerHTML={{ __html: extendedContent }}
+          className="prose prose-lg prose-slate max-w-3xl mx-auto prose-headings:font-bold prose-headings:tracking-tight prose-a:text-emerald-600 prose-img:rounded-xl"
+          dangerouslySetInnerHTML={{ __html: blog.content }}
         />
       </article>
 
@@ -95,12 +131,12 @@ export default function BlogPostPage({ params }: { params: { slug: string } }) {
         <div className="max-w-5xl mx-auto mt-24 pt-12 border-t border-slate-100">
           <div className="flex items-center justify-between mb-8">
             <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Related Articles</h2>
-            <Link href="/blog" className="text-primary font-semibold text-sm hover:underline">
+            <Link href="/blog" className="text-emerald-600 font-semibold text-sm hover:underline">
               View All
             </Link>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {relatedBlogs.map(rb => (
+            {relatedBlogs.map((rb) => (
               <BlogCard key={rb.id} blog={rb} />
             ))}
           </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { 
   Building2,
@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { adminNavConfig, NavItem } from "@/lib/mock-data/admin-nav";
 import { useAdminPage } from "@/contexts/AdminPageContext";
+import { useAuth } from "@/context/AuthContext";
 import {
   Collapsible,
   CollapsibleContent,
@@ -92,6 +93,69 @@ function NavItemComponent({ item, isCollapsed, level = 0 }: { item: NavItem, isC
 
 export function AdminSidebar() {
   const { isSidebarCollapsed, setIsSidebarCollapsed } = useAdminPage();
+  const { user, hasPermission, logout } = useAuth();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    await logout();
+    router.push("/admin/login");
+  };
+
+  const roleName = user?.role?.name?.toLowerCase() || "";
+  const isRestrictedStaff =
+    user &&
+    user.role &&
+    roleName !== "admin" &&
+    roleName !== "super admin" &&
+    roleName !== "administrator" &&
+    !(user.role.scope === "GLOBAL" && roleName.includes("admin"));
+
+  const isItemVisible = (item: NavItem): boolean => {
+    // Dashboard is always visible
+    if (item.label === "Dashboard" || item.href === "/admin") return true;
+
+    // Non-restricted views see all navigation items
+    if (!isRestrictedStaff) return true;
+
+    // For restricted staff roles (e.g. Salesperson, Technician, SEO):
+    if (item.children && item.children.length > 0) {
+      if (item.module && hasPermission(item.module, "READ")) {
+        return true;
+      }
+      return item.children.some((child) => {
+        const childModule = child.module || item.module;
+        return childModule ? hasPermission(childModule, "READ") : false;
+      });
+    }
+
+    if (!item.module) {
+      return false;
+    }
+
+    return hasPermission(item.module, "READ");
+  };
+
+  const visibleNavConfig = !isRestrictedStaff
+    ? adminNavConfig
+    : adminNavConfig
+        .map((group) => ({
+          ...group,
+          items: group.items
+            .filter(isItemVisible)
+            .map((item) => {
+              if (item.children) {
+                return {
+                  ...item,
+                  children: item.children.filter((child) => {
+                    const childModule = child.module || item.module;
+                    return childModule ? hasPermission(childModule, "READ") : false;
+                  }),
+                };
+              }
+              return item;
+            }),
+        }))
+        .filter((group) => group.items.length > 0);
 
   return (
     <div className={`flex flex-col h-full bg-white border-r border-slate-200 transition-all duration-300 ${isSidebarCollapsed ? 'w-[72px]' : 'w-[260px]'}`}>
@@ -113,30 +177,23 @@ export function AdminSidebar() {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto py-4 px-3 custom-scrollbar">
-        {adminNavConfig.map((group, i) => (
-          <div key={i} className="mb-6">
-            {!isSidebarCollapsed && group.groupLabel && (
-              <h3 className="px-3 text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 mt-4">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-6 scrollbar-thin">
+        {visibleNavConfig.map((group, groupIndex) => (
+          <div key={groupIndex} className="space-y-1">
+            {group.groupLabel && !isSidebarCollapsed && (
+              <div className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
                 {group.groupLabel}
-              </h3>
-            )}
-            {isSidebarCollapsed && group.groupLabel && (
-              <div className="flex justify-center mb-2 mt-4">
-                <div className="w-4 h-px bg-slate-200" />
               </div>
             )}
-            <div className="space-y-1">
-              {group.items.map((item, idx) => (
-                <NavItemComponent key={idx} item={item} isCollapsed={isSidebarCollapsed} />
-              ))}
-            </div>
+            {group.items.map((item, itemIndex) => (
+              <NavItemComponent key={itemIndex} item={item} isCollapsed={isSidebarCollapsed} />
+            ))}
           </div>
         ))}
       </div>
-      
-      <div className="p-3 border-t border-slate-200 bg-slate-50/50 flex-shrink-0">
-        <div className={`flex items-center ${isSidebarCollapsed ? 'flex-col gap-3' : 'justify-between px-2'} mb-3 text-slate-500`}>
+
+      <div className="p-3 border-t border-slate-200 flex flex-col gap-2 flex-shrink-0">
+        <div className={`flex items-center gap-2 ${isSidebarCollapsed ? 'flex-col' : 'justify-between'} text-slate-500`}>
           <button className="p-2 hover:bg-slate-200 rounded-md transition-colors" title="Toggle Sidebar" onClick={() => setIsSidebarCollapsed(p => !p)}>
             {isSidebarCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
           </button>
@@ -151,10 +208,13 @@ export function AdminSidebar() {
           </button>
         </div>
         
-        <Link href="/admin/logout" className={`flex items-center gap-3 px-3 py-2 rounded-lg text-danger hover:bg-danger/10 transition-colors ${isSidebarCollapsed ? 'justify-center' : ''}`}>
+        <button 
+          onClick={handleLogout}
+          className={`flex items-center gap-3 px-3 py-2 rounded-lg text-danger hover:bg-danger/10 transition-colors w-full text-left ${isSidebarCollapsed ? 'justify-center' : ''}`}
+        >
           <Power className="w-5 h-5 flex-shrink-0" />
           {!isSidebarCollapsed && <span className="font-medium text-sm">Logout Account</span>}
-        </Link>
+        </button>
       </div>
     </div>
   );

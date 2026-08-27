@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
+import { useSearchParams, useRouter } from "next/navigation";
 import { ChevronLeft, Filter, X } from "lucide-react";
 import { ProductCard } from "@/components/storefront/ProductCard";
-import { mockProducts } from "@/lib/mock-data/products";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -29,39 +29,175 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
+import { apiGet } from "@/lib/api-client";
+import { Skeleton } from "@/components/ui/skeleton";
 
-// Extract unique filter options from mockProducts (or hardcode)
-const BRANDS = ["Apple", "Samsung", "Xiaomi", "Google", "HONOR", "HUAWEI", "LG"];
-const COLORS = ["Black", "White", "Gray", "Silver", "Green", "Bronze", "Blue"];
-const QUALITIES = ["Original", "OEM", "High Quality", "GX", "IPS", "TFT", "OLED Small"];
-const GUARANTEES = ["N/A", "7 Days", "30 Days"];
-const FRAMES = ["With Frame", "No Frame"];
-const TYPES = ["Small Display", "Big Display"];
-const SERVICES = ["Display Replacement"];
+const DEFAULT_COLORS = ["Black", "White", "Gray", "Silver", "Green", "Bronze", "Blue", "Gold"];
+const DEFAULT_QUALITIES = ["Original", "OEM", "High Quality", "OLED", "TFT", "IPS", "Diamond"];
+const DEFAULT_GUARANTEES = ["No Guarantee", "7 Days", "30 Days", "6 Months", "1 Year"];
+const DEFAULT_FRAMES = ["With Frame", "No Frame"];
+const DEFAULT_TYPES = ["Original Pull", "Replacement", "Factory Refurbished"];
+const DEFAULT_SERVICES = ["Self Installation", "Free Fitting"];
 
 export default function CategoryPage({ params }: { params: { slug: string } }) {
-  // We mock loading the category name
-  const categoryName = params.slug === 'all' ? 'All Products' : params.slug.replace(/-/g, ' ').toUpperCase();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  // Filter states
-  const [selectedBrands, setSelectedBrands] = useState<string[]>([]);
-  const [selectedColors, setSelectedColors] = useState<string[]>([]);
-  const [selectedQualities, setSelectedQualities] = useState<string[]>([]);
-  const [selectedGuarantees, setSelectedGuarantees] = useState<string[]>([]);
-  const [selectedFrames, setSelectedFrames] = useState<string[]>([]);
-  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
-  const [selectedServices, setSelectedServices] = useState<string[]>([]);
+  const categoryName = useMemo(() => {
+    if (params.slug === "all") return "All Products";
+    return params.slug.replace(/-/g, " ").toUpperCase();
+  }, [params.slug]);
+
+  // Dynamic filter lists from backend
+  const [brandsList, setBrandsList] = useState<string[]>([]);
+  const [colorsList, setColorsList] = useState<string[]>(DEFAULT_COLORS);
+  const [qualitiesList, setQualitiesList] = useState<string[]>(DEFAULT_QUALITIES);
+  const [guaranteesList, setGuaranteesList] = useState<string[]>(DEFAULT_GUARANTEES);
+  const [framesList, setFramesList] = useState<string[]>(DEFAULT_FRAMES);
+  const [typesList, setTypesList] = useState<string[]>(DEFAULT_TYPES);
+  const [servicesList, setServicesList] = useState<string[]>(DEFAULT_SERVICES);
+  const [categoryInfo, setCategoryInfo] = useState<{ id: string; name: string } | null>(null);
+
+  // Filter states initialized from URL search params
+  const [selectedBrands, setSelectedBrands] = useState<string[]>(
+    searchParams.get("brand") ? searchParams.get("brand")!.split(",") : []
+  );
+  const [selectedColors, setSelectedColors] = useState<string[]>(
+    searchParams.get("color") ? searchParams.get("color")!.split(",") : []
+  );
+  const [selectedQualities, setSelectedQualities] = useState<string[]>(
+    searchParams.get("quality") ? searchParams.get("quality")!.split(",") : []
+  );
+  const [selectedGuarantees, setSelectedGuarantees] = useState<string[]>(
+    searchParams.get("guarantee") ? searchParams.get("guarantee")!.split(",") : []
+  );
+  const [selectedFrames, setSelectedFrames] = useState<string[]>(
+    searchParams.get("frame") ? searchParams.get("frame")!.split(",") : []
+  );
+  const [selectedTypes, setSelectedTypes] = useState<string[]>(
+    searchParams.get("type") ? searchParams.get("type")!.split(",") : []
+  );
+  const [selectedServices, setSelectedServices] = useState<string[]>(
+    searchParams.get("service") ? searchParams.get("service")!.split(",") : []
+  );
   
   // Sort & Pagination
-  const [sortParam, setSortParam] = useState("popular");
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 12;
+  const [sortParam, setSortParam] = useState(searchParams.get("sort") || "popular");
+  const [currentPage, setCurrentPage] = useState(Number(searchParams.get("page")) || 1);
 
-  // Toggle filter helper
+  // Products state from real backend
+  const [products, setProducts] = useState<any[]>([]);
+  const [meta, setMeta] = useState<{ total: number; page: number; limit: number; totalPages: number }>({
+    total: 0,
+    page: 1,
+    limit: 12,
+    totalPages: 1,
+  });
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Fetch brands, category details, and dynamic attributes
+  useEffect(() => {
+    (async () => {
+      try {
+        const [brandsData, catData, attrData] = await Promise.all([
+          apiGet<any[]>("/brands").catch(() => []),
+          params.slug !== "all"
+            ? apiGet<any>(`/categories/${params.slug}`).catch(() => null)
+            : Promise.resolve(null),
+          apiGet<any[]>("/attributes").catch(() => []),
+        ]);
+        if (brandsData) {
+          setBrandsList(brandsData.map((b: any) => b.name));
+        }
+        if (catData) {
+          setCategoryInfo(catData);
+        }
+        if (attrData && Array.isArray(attrData)) {
+          attrData.forEach((attr: any) => {
+            const attrName = (attr.name || "").toLowerCase();
+            const vals = (attr.values || []).map((v: any) => v.value).filter(Boolean);
+            if (vals.length > 0) {
+              if (attrName.includes("color")) {
+                setColorsList(prev => Array.from(new Set([...prev, ...vals])));
+              } else if (attrName.includes("quality") || attrName.includes("grade")) {
+                setQualitiesList(vals);
+              } else if (attrName.includes("guarantee") || attrName.includes("warranty")) {
+                setGuaranteesList(vals);
+              } else if (attrName.includes("frame")) {
+                setFramesList(vals);
+              } else if (attrName.includes("type")) {
+                setTypesList(vals);
+              } else if (attrName.includes("service")) {
+                setServicesList(vals);
+              }
+            }
+          });
+        }
+      } catch (e) {
+        console.error("Failed to load category filters", e);
+      }
+    })();
+  }, [params.slug]);
+
+  const searchTerm = searchParams.get("search") || "";
+
+  // Fetch products matching filters
+  const fetchProducts = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const query: Record<string, any> = {
+        page: currentPage,
+        limit: 12,
+        sort: sortParam === "price-low" ? "price_asc" : sortParam === "price-high" ? "price_desc" : sortParam,
+      };
+
+      if (params.slug !== "all") {
+        query.category = params.slug;
+      }
+      if (searchTerm) {
+        query.search = searchTerm;
+      }
+      if (selectedBrands.length > 0) query.brand = selectedBrands.join(",");
+      if (selectedColors.length > 0) query.color = selectedColors.join(",");
+      if (selectedQualities.length > 0) query.quality = selectedQualities.join(",");
+      if (selectedGuarantees.length > 0) query.guarantee = selectedGuarantees.join(",");
+      if (selectedFrames.length > 0) query.frame = selectedFrames.join(",");
+      if (selectedTypes.length > 0) query.type = selectedTypes.join(",");
+      if (selectedServices.length > 0) query.service = selectedServices.join(",");
+
+      const res = await apiGet<{ data: any[]; meta: any }>("/products", query);
+      setProducts(res.data || []);
+      if (res.meta) {
+        setMeta(res.meta);
+      }
+    } catch (e) {
+      console.error("Failed to load products", e);
+      setProducts([]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [
+    params.slug,
+    searchTerm,
+    currentPage,
+    sortParam,
+    selectedBrands,
+    selectedColors,
+    selectedQualities,
+    selectedGuarantees,
+    selectedFrames,
+    selectedTypes,
+    selectedServices,
+  ]);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
+
   const toggleFilter = (setFn: React.Dispatch<React.SetStateAction<string[]>>, val: string) => {
     setFn(prev => {
       const newFilter = prev.includes(val) ? prev.filter(x => x !== val) : [...prev, val];
-      setCurrentPage(1); // Reset to page 1 on filter change
+      setCurrentPage(1);
       return newFilter;
     });
   };
@@ -77,54 +213,7 @@ export default function CategoryPage({ params }: { params: { slug: string } }) {
     setCurrentPage(1);
   };
 
-  // Filter & Sort Logic
-  const filteredProducts = useMemo(() => {
-    // 1. Filter by Category Slug
-    let res = mockProducts; 
-    
-    // In our mock, if they click a specific category, let's filter by it.
-    // If it's too few products, pagination won't show. That's fine.
-    if (params.slug && params.slug !== 'all') {
-       res = res.filter(p => p.category?.slug === params.slug);
-    }
-
-    // 2. Filter by checkbox selections
-    if (selectedBrands.length > 0) {
-      res = res.filter(p => p.brand && selectedBrands.includes(p.brand.name));
-    }
-    if (selectedColors.length > 0) {
-      res = res.filter(p => p.colors?.some(c => selectedColors.includes(c)));
-    }
-    if (selectedQualities.length > 0) {
-      res = res.filter(p => p.quality && selectedQualities.includes(p.quality));
-    }
-    if (selectedGuarantees.length > 0) {
-      res = res.filter(p => p.guarantee && selectedGuarantees.includes(p.guarantee));
-    }
-    if (selectedFrames.length > 0) {
-      res = res.filter(p => p.frame && selectedFrames.includes(p.frame));
-    }
-    if (selectedTypes.length > 0) {
-      res = res.filter(p => p.type && selectedTypes.includes(p.type));
-    }
-    if (selectedServices.length > 0) {
-      res = res.filter(p => p.service && selectedServices.includes(p.service));
-    }
-
-    // 3. Sort
-    res.sort((a, b) => {
-      if (sortParam === "price-low") return a.price - b.price;
-      if (sortParam === "price-high") return b.price - a.price;
-      if (sortParam === "newest") return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-      // popular
-      return (b.popularity || 0) - (a.popularity || 0);
-    });
-
-    return res;
-  }, [selectedBrands, selectedColors, selectedQualities, selectedGuarantees, selectedFrames, selectedTypes, selectedServices, sortParam, params.slug]);
-
-  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
-  const paginatedProducts = filteredProducts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const activeBrands = brandsList.length > 0 ? brandsList : ["Apple", "Samsung", "Xiaomi", "Google", "HONOR", "HUAWEI", "LG"];
 
   const FilterSidebar = () => (
     <div className="flex flex-col gap-6">
@@ -139,7 +228,7 @@ export default function CategoryPage({ params }: { params: { slug: string } }) {
           <AccordionTrigger className="py-3 hover:no-underline font-semibold text-slate-700">Brand</AccordionTrigger>
           <AccordionContent>
             <div className="flex flex-col gap-3 mt-1 pb-1">
-              {BRANDS.map(b => (
+              {activeBrands.map(b => (
                 <label key={b} className="flex items-center gap-3 cursor-pointer group">
                   <Checkbox 
                     checked={selectedBrands.includes(b)}
@@ -158,7 +247,7 @@ export default function CategoryPage({ params }: { params: { slug: string } }) {
           <AccordionTrigger className="py-3 hover:no-underline font-semibold text-slate-700">Color</AccordionTrigger>
           <AccordionContent>
             <div className="flex flex-col gap-3 mt-1 pb-1">
-              {COLORS.map(c => (
+              {colorsList.map(c => (
                 <label key={c} className="flex items-center gap-3 cursor-pointer group">
                   <Checkbox 
                     checked={selectedColors.includes(c)}
@@ -177,7 +266,7 @@ export default function CategoryPage({ params }: { params: { slug: string } }) {
           <AccordionTrigger className="py-3 hover:no-underline font-semibold text-slate-700">Quality</AccordionTrigger>
           <AccordionContent>
             <div className="flex flex-col gap-3 mt-1 pb-1">
-              {QUALITIES.map(q => (
+              {qualitiesList.map(q => (
                 <label key={q} className="flex items-center gap-3 cursor-pointer group">
                   <Checkbox 
                     checked={selectedQualities.includes(q)}
@@ -196,7 +285,7 @@ export default function CategoryPage({ params }: { params: { slug: string } }) {
           <AccordionTrigger className="py-3 hover:no-underline font-semibold text-slate-700">Guarantee</AccordionTrigger>
           <AccordionContent>
             <div className="flex flex-col gap-3 mt-1 pb-1">
-              {GUARANTEES.map(g => (
+              {guaranteesList.map(g => (
                 <label key={g} className="flex items-center gap-3 cursor-pointer group">
                   <Checkbox 
                     checked={selectedGuarantees.includes(g)}
@@ -215,7 +304,7 @@ export default function CategoryPage({ params }: { params: { slug: string } }) {
           <AccordionTrigger className="py-3 hover:no-underline font-semibold text-slate-700">Frame</AccordionTrigger>
           <AccordionContent>
             <div className="flex flex-col gap-3 mt-1 pb-1">
-              {FRAMES.map(f => (
+              {framesList.map(f => (
                 <label key={f} className="flex items-center gap-3 cursor-pointer group">
                   <Checkbox 
                     checked={selectedFrames.includes(f)}
@@ -234,7 +323,7 @@ export default function CategoryPage({ params }: { params: { slug: string } }) {
           <AccordionTrigger className="py-3 hover:no-underline font-semibold text-slate-700">Type</AccordionTrigger>
           <AccordionContent>
             <div className="flex flex-col gap-3 mt-1 pb-1">
-              {TYPES.map(t => (
+              {typesList.map(t => (
                 <label key={t} className="flex items-center gap-3 cursor-pointer group">
                   <Checkbox 
                     checked={selectedTypes.includes(t)}
@@ -253,7 +342,7 @@ export default function CategoryPage({ params }: { params: { slug: string } }) {
           <AccordionTrigger className="py-3 hover:no-underline font-semibold text-slate-700">Service</AccordionTrigger>
           <AccordionContent>
             <div className="flex flex-col gap-3 mt-1 pb-1">
-              {SERVICES.map(s => (
+              {servicesList.map(s => (
                 <label key={s} className="flex items-center gap-3 cursor-pointer group">
                   <Checkbox 
                     checked={selectedServices.includes(s)}
@@ -279,7 +368,12 @@ export default function CategoryPage({ params }: { params: { slug: string } }) {
             <ChevronLeft className="w-5 h-5" />
           </Button>
         </Link>
-        <h1 className="text-2xl md:text-3xl font-bold text-slate-900">{categoryName}</h1>
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold text-slate-900">
+            {categoryInfo?.name || categoryName}
+          </h1>
+          <p className="text-xs text-slate-500 mt-0.5">Browse spare parts and components</p>
+        </div>
       </div>
 
       <div className="flex gap-8 items-start">
@@ -311,7 +405,7 @@ export default function CategoryPage({ params }: { params: { slug: string } }) {
                 </Sheet>
               </div>
               <p className="text-sm text-slate-500 font-medium">
-                Showing {paginatedProducts.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0} to {Math.min(currentPage * itemsPerPage, filteredProducts.length)} of {filteredProducts.length} results
+                Showing {products.length > 0 ? (currentPage - 1) * meta.limit + 1 : 0} to {Math.min(currentPage * meta.limit, meta.total)} of {meta.total} results
               </p>
             </div>
 
@@ -332,9 +426,20 @@ export default function CategoryPage({ params }: { params: { slug: string } }) {
           </div>
 
           {/* Product Grid */}
-          {paginatedProducts.length > 0 ? (
+          {isLoading ? (
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
-              {paginatedProducts.map(p => (
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
+                  <Skeleton className="w-full aspect-square rounded-lg" />
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-9 w-full" />
+                </div>
+              ))}
+            </div>
+          ) : products.length > 0 ? (
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6">
+              {products.map(p => (
                 <ProductCard key={p.id} product={p} />
               ))}
             </div>
@@ -344,13 +449,13 @@ export default function CategoryPage({ params }: { params: { slug: string } }) {
                 <X className="w-8 h-8" />
               </div>
               <h3 className="text-lg font-semibold text-slate-800">No products found</h3>
-              <p className="text-slate-500 mt-2 text-sm">Try adjusting your filters or search criteria.</p>
+              <p className="text-slate-500 mt-2 text-sm">Try adjusting your filters or category selection.</p>
               <Button variant="outline" className="mt-6 border-slate-200" onClick={clearAll}>Clear Filters</Button>
             </div>
           )}
 
           {/* Pagination */}
-          {totalPages > 1 && (
+          {meta.totalPages > 1 && (
             <div className="mt-12 flex justify-center">
               <Pagination>
                 <PaginationContent>
@@ -362,26 +467,23 @@ export default function CategoryPage({ params }: { params: { slug: string } }) {
                     />
                   </PaginationItem>
                   
-                  {Array.from({ length: totalPages }).map((_, i) => {
-                    // Logic to show limited pages if we have too many, but for now we only have up to ~4 pages (45 items).
-                    return (
-                      <PaginationItem key={i}>
-                        <PaginationLink 
-                          href="#" 
-                          isActive={currentPage === i + 1}
-                          onClick={(e) => { e.preventDefault(); setCurrentPage(i + 1); }}
-                        >
-                          {i + 1}
-                        </PaginationLink>
-                      </PaginationItem>
-                    );
-                  })}
+                  {Array.from({ length: meta.totalPages }).map((_, i) => (
+                    <PaginationItem key={i}>
+                      <PaginationLink 
+                        href="#" 
+                        isActive={currentPage === i + 1}
+                        onClick={(e) => { e.preventDefault(); setCurrentPage(i + 1); }}
+                      >
+                        {i + 1}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ))}
                   
                   <PaginationItem>
                     <PaginationNext 
                       href="#" 
-                      onClick={(e) => { e.preventDefault(); setCurrentPage(p => Math.min(totalPages, p + 1)); }}
-                      className={currentPage === totalPages ? 'pointer-events-none opacity-50' : ''}
+                      onClick={(e) => { e.preventDefault(); setCurrentPage(p => Math.min(meta.totalPages, p + 1)); }}
+                      className={currentPage === meta.totalPages ? 'pointer-events-none opacity-50' : ''}
                     />
                   </PaginationItem>
                 </PaginationContent>

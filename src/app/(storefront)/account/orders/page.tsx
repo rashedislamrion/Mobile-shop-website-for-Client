@@ -1,42 +1,122 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { PackageX, Eye } from "lucide-react";
+import { PackageX, Eye, Loader2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { apiGet } from "@/lib/api-client";
+import { useAuth } from "@/context/AuthContext";
+import { toast } from "sonner";
+import { Skeleton } from "@/components/ui/skeleton";
 
-// Mock Orders
-const mockOrders = [
-  { id: "#ORD-001", date: "2023-10-25", items: 3, total: 3500, status: "Pending" },
-  { id: "#ORD-002", date: "2023-10-20", items: 1, total: 1200, status: "Delivered" },
-  { id: "#ORD-003", date: "2023-10-15", items: 2, total: 2400, status: "Delivered" },
-  { id: "#ORD-004", date: "2023-10-10", items: 1, total: 500, status: "Cancelled" },
-];
+interface MyOrderItem {
+  id: string;
+  productNameSnapshot: string;
+  quantity: number;
+  unitPrice: number | string;
+  lineTotal: number | string;
+  product?: { name: string };
+}
+
+interface MyOrder {
+  id: string;
+  orderCode: string;
+  createdAt: string;
+  items: MyOrderItem[];
+  totalAmount: number | string;
+  status: string;
+  paymentStatus: string;
+}
 
 const TABS = ["Pending", "Confirmed", "Parcel Booked", "Delivered", "Returned", "Cancelled", "All"];
 
-export default function OrdersPage() {
+const STATUS_MAP: Record<string, string> = {
+  Pending: "PENDING",
+  Confirmed: "CONFIRMED",
+  "Parcel Booked": "PARCEL_BOOKED",
+  Delivered: "DELIVERED",
+  Returned: "RETURNED",
+  Cancelled: "CANCELLED",
+};
+
+export default function CustomerOrdersPage() {
+  const { user, isAuthenticated, isLoading: isAuthLoading } = useAuth();
+  const [orders, setOrders] = useState<MyOrder[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("All");
 
-  const getFilteredOrders = (status: string) => {
-    if (status === "All") return mockOrders;
-    return mockOrders.filter(o => o.status === status);
+  const loadOrders = useCallback(async () => {
+    if (!isAuthenticated) return;
+    try {
+      setIsLoading(true);
+      const res = await apiGet<MyOrder[]>("/orders/my");
+      setOrders(Array.isArray(res) ? res : []);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load your orders");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadOrders();
+    } else if (!isAuthLoading) {
+      setIsLoading(false);
+    }
+  }, [isAuthenticated, isAuthLoading, loadOrders]);
+
+  const getFilteredOrders = (tab: string) => {
+    if (tab === "All") return orders;
+    const mapped = STATUS_MAP[tab];
+    return orders.filter((o) => o.status === mapped || o.status === tab);
   };
 
-  const getCount = (status: string) => getFilteredOrders(status).length;
+  const getCount = (tab: string) => getFilteredOrders(tab).length;
 
-  const renderOrderTable = (status: string) => {
-    const orders = getFilteredOrders(status);
+  if (isAuthLoading) {
+    return (
+      <div className="space-y-4 p-6">
+        <Skeleton className="h-10 w-48" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
 
-    if (orders.length === 0) {
+  if (!isAuthenticated) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 bg-white rounded-xl border border-slate-100 text-center space-y-4">
+        <h2 className="text-xl font-bold text-slate-800">Please Sign In</h2>
+        <p className="text-slate-500 text-sm max-w-md">
+          You need to be logged into your account to view your past orders and track current shipments.
+        </p>
+        <Button asChild className="bg-emerald-600 hover:bg-emerald-700 text-white">
+          <Link href="/login">Sign In / Register</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  const renderOrderTable = (tab: string) => {
+    const tabOrders = getFilteredOrders(tab);
+
+    if (isLoading) {
+      return (
+        <div className="p-8 flex justify-center items-center">
+          <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />
+        </div>
+      );
+    }
+
+    if (tabOrders.length === 0) {
       return (
         <EmptyState 
           icon={PackageX} 
           title="No Order Found" 
-          subtitle={`There are no orders with the status "${status}".`}
+          subtitle={`There are no orders with the status "${tab}".`}
           action={<Button asChild variant="outline"><Link href="/">Continue Shopping</Link></Button>}
         />
       );
@@ -52,32 +132,40 @@ export default function OrdersPage() {
               <th className="py-4 px-6">Items</th>
               <th className="py-4 px-6">Total</th>
               <th className="py-4 px-6">Status</th>
-              <th className="py-4 px-6 text-right">Action</th>
+              <th className="py-4 px-6 text-right">Payment</th>
             </tr>
           </thead>
           <tbody>
-            {orders.map((order) => (
-              <tr key={order.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
-                <td className="py-4 px-6 font-semibold text-primary">{order.id}</td>
-                <td className="py-4 px-6 text-sm text-slate-600">{order.date}</td>
-                <td className="py-4 px-6 text-sm text-slate-600">{order.items} items</td>
-                <td className="py-4 px-6 font-bold text-slate-900">৳{order.total.toLocaleString()}</td>
-                <td className="py-4 px-6">
-                  <Badge variant="outline" className={`
-                    ${order.status === 'Pending' ? 'text-amber-600 border-amber-200 bg-amber-50' : ''}
-                    ${order.status === 'Delivered' ? 'text-emerald-600 border-emerald-200 bg-emerald-50' : ''}
-                    ${order.status === 'Cancelled' ? 'text-danger border-danger/20 bg-danger/5' : ''}
-                  `}>
-                    {order.status}
-                  </Badge>
-                </td>
-                <td className="py-4 px-6 text-right">
-                  <Button variant="outline" size="sm" className="h-8 gap-2">
-                    <Eye className="w-3 h-3" /> View
-                  </Button>
-                </td>
-              </tr>
-            ))}
+            {tabOrders.map((order) => {
+              const count = order.items?.reduce((acc, i) => acc + i.quantity, 0) || order.items?.length || 0;
+              const dateStr = new Date(order.createdAt).toLocaleDateString("en-GB", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              });
+
+              return (
+                <tr key={order.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                  <td className="py-4 px-6 font-semibold text-emerald-600 font-mono">{order.orderCode}</td>
+                  <td className="py-4 px-6 text-sm text-slate-600">{dateStr}</td>
+                  <td className="py-4 px-6 text-sm text-slate-600">{count} item{count !== 1 ? "s" : ""}</td>
+                  <td className="py-4 px-6 font-bold text-slate-900">৳{Number(order.totalAmount).toLocaleString()}</td>
+                  <td className="py-4 px-6">
+                    <Badge variant="outline" className={`
+                      ${order.status === "PENDING" ? "text-amber-600 border-amber-200 bg-amber-50" : ""}
+                      ${order.status === "CONFIRMED" || order.status === "PARCEL_BOOKED" ? "text-blue-600 border-blue-200 bg-blue-50" : ""}
+                      ${order.status === "DELIVERED" || order.status === "COMPLETED" ? "text-emerald-600 border-emerald-200 bg-emerald-50" : ""}
+                      ${order.status === "CANCELLED" || order.status === "RETURNED" ? "text-red-600 border-red-200 bg-red-50" : ""}
+                    `}>
+                      {order.status}
+                    </Badge>
+                  </td>
+                  <td className="py-4 px-6 text-right text-xs font-semibold text-slate-700">
+                    {order.paymentStatus}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -97,7 +185,7 @@ export default function OrdersPage() {
               <TabsTrigger 
                 key={tab} 
                 value={tab}
-                className="rounded-full border border-slate-200 px-4 py-2 data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:border-primary"
+                className="rounded-full border border-slate-200 px-4 py-2 data-[state=active]:bg-slate-900 data-[state=active]:text-white data-[state=active]:border-slate-900 text-slate-600"
               >
                 {tab} ({getCount(tab)})
               </TabsTrigger>

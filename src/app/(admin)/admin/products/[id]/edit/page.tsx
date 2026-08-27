@@ -1,50 +1,57 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
-import { ProductForm } from "@/components/admin/ProductForm";
-import { mockProducts } from "@/lib/mock-data/products/all-products";
+import { ProductForm, ExistingProductData } from "@/components/admin/ProductForm";
+import { apiGet } from "@/lib/api-client";
+import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
 
 export default function EditProductPage({ params }: { params: { id: string } }) {
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
-  const product = mockProducts.find(p => p.id === params.id);
+  const [product, setProduct] = useState<ExistingProductData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    setTitle(`Edit ${product?.name || "Product"}`);
+    setTitle("Edit Product");
     setBadge("Website");
     setDateFilter(""); 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [product]);
 
-  if (!product) {
-    return <div className="p-6 text-slate-500">Product not found.</div>;
+    (async () => {
+      setIsLoading(true);
+      try {
+        const data = await apiGet<ExistingProductData>(`/products/${params.id}`);
+        setProduct(data);
+        if (data?.name) {
+          setTitle(`Edit: ${data.name}`);
+        }
+      } catch (err: any) {
+        toast.error(err.message || "Failed to load product details");
+      } finally {
+        setIsLoading(false);
+      }
+    })();
+  }, [params.id, setTitle, setBadge, setDateFilter]);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6 pb-10">
+        <Skeleton className="h-10 w-1/3" />
+        <div className="flex gap-6">
+          <Skeleton className="h-[500px] w-2/3" />
+          <Skeleton className="h-[300px] w-1/3" />
+        </div>
+      </div>
+    );
   }
 
-  // Map the MockProduct to the form's expected structure
-  const initialData = {
-    name: product.name,
-    slug: product.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, ""),
-    shortDescription: "A great product.",
-    fullDescription: "Full details here...",
-    images: [product.image],
-    variants: [],
-    price: product.price,
-    salePrice: product.oldPrice,
-    costPrice: undefined,
-    specifications: [
-      { label: "Warranty", value: "6 Months" }
-    ],
-    metaTitle: product.name,
-    metaDescription: "",
-    metaKeywords: "",
-    status: product.status === "Draft" ? "Draft" as const : "Active" as const,
-    category: product.category,
-    brand: product.brand,
-  };
+  if (!product) {
+    return <div className="p-6 text-slate-500">Product not found in database.</div>;
+  }
 
   return (
     <div className="pb-10">
-      <ProductForm initialData={initialData} isEdit={true} />
+      <ProductForm initialData={product} isEdit={true} productId={params.id} />
     </div>
   );
 }

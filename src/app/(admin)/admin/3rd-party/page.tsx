@@ -1,643 +1,654 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { useAdminPage } from '@/contexts/AdminPageContext';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { mockThirdPartyConfig, mockBranches } from '@/lib/mock-data/third-party-config';
-import { Eye, EyeOff, UploadCloud, AlertTriangle, Edit2, ShieldAlert, FileJson, Mail, MessageSquare, CreditCard } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import React, { useState, useEffect } from "react";
+import { useAdminPage } from "@/contexts/AdminPageContext";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "sonner";
+import { 
+  CreditCard, MessageSquare, Mail, FileJson, ShieldAlert, 
+  Eye, EyeOff, Loader2, Save, AlertTriangle 
+} from "lucide-react";
+import { apiGet, apiPatch } from "@/lib/api-client";
 
 export default function ThirdPartyConfigPage() {
-  const { setPageInfo } = useAdminPage();
-  const [config, setConfig] = useState(mockThirdPartyConfig);
-  const [hasChanges, setHasChanges] = useState(false);
+  const { setTitle, setBadge } = useAdminPage();
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // password visibility states
-  const [showBkashSecret, setShowBkashSecret] = useState(false);
+  // Gateways
+  const [bkash, setBkash] = useState<any>({
+    isActive: false,
+    mode: "Sandbox",
+    title: "bKash Digital Payment",
+    credentials: { appKey: "", appSecretKey: "", username: "", password: "" },
+  });
+  const [ssl, setSsl] = useState<any>({
+    isActive: false,
+    mode: "Sandbox",
+    title: "SSLCommerz Payment Gateway",
+    credentials: { storeId: "", storePassword: "", currency: "BDT" },
+  });
+  const [cod, setCod] = useState<any>({
+    isActive: true,
+    title: "Cash on Delivery",
+    credentials: {},
+  });
+
+  // SMS
+  const [sms, setSms] = useState<any>({
+    provider: "GREENWEB",
+    apiKey: "",
+    senderId: "",
+    isActive: false,
+  });
+
+  // Mail
+  const [mail, setMail] = useState<any>({
+    host: "smtp.gmail.com",
+    port: 587,
+    username: "",
+    password: "",
+    fromEmail: "noreply@novamobile.com",
+    fromName: "NovaMobile",
+    isActive: false,
+  });
+
+  // Firebase
+  const [firebase, setFirebase] = useState<any>({
+    apiKey: "",
+    projectId: "",
+    messagingSenderId: "",
+    appId: "",
+    serverKey: "",
+    isActive: false,
+  });
+
+  // ReCaptcha
+  const [recaptcha, setRecaptcha] = useState<any>({
+    siteKey: "",
+    secretKey: "",
+    version: "V3",
+    isActive: false,
+  });
+
+  // Password visibility states
   const [showBkashPass, setShowBkashPass] = useState(false);
   const [showSslPass, setShowSslPass] = useState(false);
-  const [showSmsSecret, setShowSmsSecret] = useState(false);
   const [showMailPass, setShowMailPass] = useState(false);
-  const [showFirebaseKey, setShowFirebaseKey] = useState(false);
-  const [showRecaptchaSecret, setShowRecaptchaSecret] = useState(false);
 
-  React.useEffect(() => {
-    setPageInfo({
-      title: '3rd Party Configuration',
-      breadcrumbs: [
-        { label: 'Business Administration', href: '/admin/3rd-party' },
-        { label: '3rd Party Configuration', href: '/admin/3rd-party' }
-      ]
-    });
-  }, [setPageInfo]);
+  const fetchAllConfigs = async () => {
+    setIsLoading(true);
+    try {
+      const [gateways, smsData, mailData, firebaseData, recaptchaData] = await Promise.all([
+        apiGet<any[]>("/payment-gateways").catch(() => []),
+        apiGet<any>("/sms-config").catch(() => null),
+        apiGet<any>("/mail-config").catch(() => null),
+        apiGet<any>("/firebase-config").catch(() => null),
+        apiGet<any>("/recaptcha-config").catch(() => null),
+      ]);
 
-  const handleChange = () => setHasChanges(true);
+      if (gateways && gateways.length > 0) {
+        const bk = gateways.find((g) => g.gateway === "BKASH");
+        const sc = gateways.find((g) => g.gateway === "SSLCOMMERZ");
+        const cd = gateways.find((g) => g.gateway === "COD");
+        if (bk) setBkash({ ...bk, credentials: bk.credentials || {} });
+        if (sc) setSsl({ ...sc, credentials: sc.credentials || {} });
+        if (cd) setCod({ ...cd, credentials: cd.credentials || {} });
+      }
+
+      if (smsData) setSms(smsData);
+      if (mailData) setMail(mailData);
+      if (firebaseData) setFirebase(firebaseData);
+      if (recaptchaData) setRecaptcha(recaptchaData);
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to load third party configuration");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setTitle("3rd Party Integration");
+    setBadge("Settings");
+    fetchAllConfigs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSavePaymentGateways = async () => {
+    setIsSaving(true);
+    try {
+      await Promise.all([
+        apiPatch("/payment-gateways/BKASH", {
+          isActive: bkash.isActive,
+          mode: bkash.mode,
+          title: bkash.title,
+          credentials: bkash.credentials,
+        }),
+        apiPatch("/payment-gateways/SSLCOMMERZ", {
+          isActive: ssl.isActive,
+          mode: ssl.mode,
+          title: ssl.title,
+          credentials: ssl.credentials,
+        }),
+        apiPatch("/payment-gateways/COD", {
+          isActive: cod.isActive,
+          title: cod.title,
+          credentials: cod.credentials,
+        }),
+      ]);
+      toast.success("Payment gateways configuration saved successfully!");
+      fetchAllConfigs();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save payment gateway settings");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveSms = async () => {
+    setIsSaving(true);
+    try {
+      await apiPatch("/sms-config", sms);
+      toast.success("SMS gateway configuration saved!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save SMS config");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveMail = async () => {
+    setIsSaving(true);
+    try {
+      await apiPatch("/mail-config", mail);
+      toast.success("SMTP email configuration saved!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save mail config");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveFirebase = async () => {
+    setIsSaving(true);
+    try {
+      await apiPatch("/firebase-config", firebase);
+      toast.success("Firebase cloud messaging configuration saved!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save Firebase config");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveRecaptcha = async () => {
+    setIsSaving(true);
+    try {
+      await apiPatch("/recaptcha-config", recaptcha);
+      toast.success("Google reCAPTCHA configuration saved!");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save reCAPTCHA config");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="py-16 text-center">
+        <Loader2 className="w-8 h-8 animate-spin text-emerald-600 mx-auto mb-2" />
+        <p className="text-sm text-slate-500">Loading third party credentials & configs...</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6">
-      {/* LEFT COLUMN: Main Tabs */}
-      <div className="flex-1 space-y-6">
-        <Tabs defaultValue="payment" className="w-full">
-          <TabsList className="bg-slate-100 p-1 rounded-lg w-full justify-start h-auto flex-wrap mb-6">
-            <TabsTrigger value="payment" className="data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow-sm rounded-md px-4 py-2 flex items-center gap-2"><CreditCard className="w-4 h-4" /> Payment Gateway</TabsTrigger>
-            <TabsTrigger value="sms" className="data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow-sm rounded-md px-4 py-2 flex items-center gap-2"><MessageSquare className="w-4 h-4" /> SMS Gateway</TabsTrigger>
-            <TabsTrigger value="mail" className="data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow-sm rounded-md px-4 py-2 flex items-center gap-2"><Mail className="w-4 h-4" /> Mail Config</TabsTrigger>
-            <TabsTrigger value="firebase" className="data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow-sm rounded-md px-4 py-2 flex items-center gap-2"><FileJson className="w-4 h-4" /> Firebase Notification</TabsTrigger>
-            <TabsTrigger value="recaptcha" className="data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow-sm rounded-md px-4 py-2 flex items-center gap-2"><ShieldAlert className="w-4 h-4" /> Google ReCaptcha</TabsTrigger>
-          </TabsList>
-
-          {/* PAYMENT TAB */}
-          <TabsContent value="payment" className="mt-0 space-y-6">
-            <div className="bg-blue-50 text-blue-800 text-sm p-4 rounded-xl border border-blue-100 flex items-start gap-3">
-              <div className="mt-0.5"><AlertTriangle className="w-5 h-5 text-blue-500" /></div>
-              <p>Only bKash, SSLCommerz, and Cash on Delivery are supported for this store. Additional gateways are not available.</p>
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              {/* BKASH CARD */}
-              <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden flex flex-col">
-                <CardHeader className="bg-slate-50 border-b border-slate-100 pb-4 flex flex-row items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-pink-600 rounded flex items-center justify-center text-white font-bold text-xl">b</div>
-                    <CardTitle className="text-lg font-semibold text-slate-800">bKash</CardTitle>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-slate-600">{config.payment.bkash.enabled ? 'On' : 'Off'}</span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" className="sr-only peer" checked={config.payment.bkash.enabled} onChange={(e) => { setConfig({...config, payment: {...config.payment, bkash: {...config.payment.bkash, enabled: e.target.checked}}}); handleChange(); }} />
-                      <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                    </label>
-                  </div>
-                </CardHeader>
-                {config.payment.bkash.enabled && (
-                  <CardContent className="p-6 space-y-4 flex-1">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Mode</label>
-                      <select value={config.payment.bkash.mode} onChange={(e) => { setConfig({...config, payment: {...config.payment, bkash: {...config.payment.bkash, mode: e.target.value}}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500">
-                        <option value="sandbox">Sandbox</option>
-                        <option value="live">Live</option>
-                      </select>
-                    </div>
-                    {config.payment.bkash.mode === 'live' && (
-                      <div className="bg-amber-50 text-amber-800 text-xs p-3 rounded-lg border border-amber-200 flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4" /> <span>⚠ Live mode will process real payments. Make sure credentials are correct.</span>
-                      </div>
-                    )}
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">App Key</label>
-                      <input type="text" value={config.payment.bkash.appKey} onChange={(e) => { setConfig({...config, payment: {...config.payment, bkash: {...config.payment.bkash, appKey: e.target.value}}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">App Secret Key</label>
-                      <div className="relative">
-                        <input type={showBkashSecret ? 'text' : 'password'} value={config.payment.bkash.appSecret} onChange={(e) => { setConfig({...config, payment: {...config.payment, bkash: {...config.payment.bkash, appSecret: e.target.value}}}); handleChange(); }} className="w-full pl-4 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                        <button type="button" onClick={() => setShowBkashSecret(!showBkashSecret)} className="absolute inset-y-0 right-3 flex items-center text-slate-400 hover:text-slate-600">
-                          {showBkashSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Username</label>
-                        <input type="text" value={config.payment.bkash.username} onChange={(e) => { setConfig({...config, payment: {...config.payment, bkash: {...config.payment.bkash, username: e.target.value}}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-                        <div className="relative">
-                          <input type={showBkashPass ? 'text' : 'password'} value={config.payment.bkash.password} onChange={(e) => { setConfig({...config, payment: {...config.payment, bkash: {...config.payment.bkash, password: e.target.value}}}); handleChange(); }} className="w-full pl-4 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                          <button type="button" onClick={() => setShowBkashPass(!showBkashPass)} className="absolute inset-y-0 right-3 flex items-center text-slate-400 hover:text-slate-600">
-                            {showBkashPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Payment Gateway Title</label>
-                      <input type="text" value={config.payment.bkash.title} onChange={(e) => { setConfig({...config, payment: {...config.payment, bkash: {...config.payment.bkash, title: e.target.value}}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Choose Logo (Checkout)</label>
-                      <div className="border-2 border-dashed border-slate-200 rounded-lg p-4 flex items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer cursor-not-allowed opacity-70">
-                        <div className="flex items-center gap-2 text-sm text-slate-500"><UploadCloud className="w-4 h-4" /> Upload logo.png</div>
-                      </div>
-                    </div>
-                  </CardContent>
-                )}
-                <div className="p-4 bg-slate-50 border-t border-slate-100 mt-auto flex justify-end">
-                  <Button onClick={handleChange} className="bg-emerald-600 hover:bg-emerald-700 text-white">Save And Update</Button>
-                </div>
-              </Card>
-
-              {/* SSLCOMMERZ CARD */}
-              <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden flex flex-col">
-                <CardHeader className="bg-slate-50 border-b border-slate-100 pb-4 flex flex-row items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-blue-600 rounded flex items-center justify-center text-white font-bold text-xl">S</div>
-                    <CardTitle className="text-lg font-semibold text-slate-800">SSLCommerz</CardTitle>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-slate-600">{config.payment.sslcommerz.enabled ? 'On' : 'Off'}</span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" className="sr-only peer" checked={config.payment.sslcommerz.enabled} onChange={(e) => { setConfig({...config, payment: {...config.payment, sslcommerz: {...config.payment.sslcommerz, enabled: e.target.checked}}}); handleChange(); }} />
-                      <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                    </label>
-                  </div>
-                </CardHeader>
-                {config.payment.sslcommerz.enabled && (
-                  <CardContent className="p-6 space-y-4 flex-1">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Mode</label>
-                      <select value={config.payment.sslcommerz.mode} onChange={(e) => { 
-                          const isLive = e.target.value === 'live';
-                          setConfig({...config, payment: {...config.payment, sslcommerz: {...config.payment.sslcommerz, mode: e.target.value, baseUrl: isLive ? 'https://securepay.sslcommerz.com/gwprocess/v4/api.php' : 'https://sandbox.sslcommerz.com/gwprocess/v4/api.php'}}}); 
-                          handleChange(); 
-                        }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500">
-                        <option value="test">Test</option>
-                        <option value="live">Live</option>
-                      </select>
-                    </div>
-                    {config.payment.sslcommerz.mode === 'live' && (
-                      <div className="bg-amber-50 text-amber-800 text-xs p-3 rounded-lg border border-amber-200 flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4" /> <span>⚠ Live mode will process real payments. Make sure credentials are correct.</span>
-                      </div>
-                    )}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Store ID</label>
-                        <input type="text" value={config.payment.sslcommerz.storeId} onChange={(e) => { setConfig({...config, payment: {...config.payment, sslcommerz: {...config.payment.sslcommerz, storeId: e.target.value}}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Store Password</label>
-                        <div className="relative">
-                          <input type={showSslPass ? 'text' : 'password'} value={config.payment.sslcommerz.storePassword} onChange={(e) => { setConfig({...config, payment: {...config.payment, sslcommerz: {...config.payment.sslcommerz, storePassword: e.target.value}}}); handleChange(); }} className="w-full pl-4 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                          <button type="button" onClick={() => setShowSslPass(!showSslPass)} className="absolute inset-y-0 right-3 flex items-center text-slate-400 hover:text-slate-600">
-                            {showSslPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Base URL</label>
-                      <input type="text" readOnly value={config.payment.sslcommerz.baseUrl} className="w-full px-4 py-2 bg-slate-100 text-slate-500 border border-slate-200 rounded-lg focus:outline-none" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Currency</label>
-                        <input type="text" readOnly value={config.payment.sslcommerz.currency} className="w-full px-4 py-2 bg-slate-100 text-slate-500 border border-slate-200 rounded-lg focus:outline-none" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Gateway Title</label>
-                        <input type="text" value={config.payment.sslcommerz.title} onChange={(e) => { setConfig({...config, payment: {...config.payment, sslcommerz: {...config.payment.sslcommerz, title: e.target.value}}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Choose Logo (Checkout)</label>
-                      <div className="border-2 border-dashed border-slate-200 rounded-lg p-4 flex items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer cursor-not-allowed opacity-70">
-                        <div className="flex items-center gap-2 text-sm text-slate-500"><UploadCloud className="w-4 h-4" /> Upload logo.png</div>
-                      </div>
-                    </div>
-                  </CardContent>
-                )}
-                <div className="p-4 bg-slate-50 border-t border-slate-100 mt-auto flex justify-end">
-                  <Button onClick={handleChange} className="bg-emerald-600 hover:bg-emerald-700 text-white">Save And Update</Button>
-                </div>
-              </Card>
-
-              {/* COD CARD */}
-              <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden flex flex-col">
-                <CardHeader className="bg-slate-50 border-b border-slate-100 pb-4 flex flex-row items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-emerald-600 rounded flex items-center justify-center text-white font-bold text-xl">C</div>
-                    <CardTitle className="text-lg font-semibold text-slate-800">Cash on Delivery (COD)</CardTitle>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-slate-600">{config.payment.cod.enabled ? 'On' : 'Off'}</span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input type="checkbox" className="sr-only peer" checked={config.payment.cod.enabled} onChange={(e) => { setConfig({...config, payment: {...config.payment, cod: {...config.payment.cod, enabled: e.target.checked}}}); handleChange(); }} />
-                      <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                    </label>
-                  </div>
-                </CardHeader>
-                {config.payment.cod.enabled && (
-                  <CardContent className="p-6 space-y-4 flex-1">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Payment Gateway Title</label>
-                      <input type="text" value={config.payment.cod.title} onChange={(e) => { setConfig({...config, payment: {...config.payment, cod: {...config.payment.cod, title: e.target.value}}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">COD Availability</label>
-                      <select value={config.payment.cod.availability} onChange={(e) => { setConfig({...config, payment: {...config.payment, cod: {...config.payment.cod, availability: e.target.value}}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500">
-                        <option value="all">All Areas</option>
-                        <option value="selected">Selected Branches Only</option>
-                      </select>
-                    </div>
-                    {config.payment.cod.availability === 'selected' && (
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Select Branches</label>
-                        <select multiple value={config.payment.cod.branches} onChange={(e) => { 
-                            const values = Array.from(e.target.selectedOptions, option => option.value);
-                            setConfig({...config, payment: {...config.payment, cod: {...config.payment.cod, branches: values}}}); handleChange(); 
-                          }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 min-h-[100px]">
-                          {mockBranches.map(b => (
-                            <option key={b.id} value={b.id}>{b.name}</option>
-                          ))}
-                        </select>
-                        <p className="text-xs text-slate-500 mt-1">Hold CMD/Ctrl to select multiple</p>
-                      </div>
-                    )}
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Extra COD Charge (৳)</label>
-                        <input type="number" value={config.payment.cod.extraCharge} onChange={(e) => { setConfig({...config, payment: {...config.payment, cod: {...config.payment.cod, extraCharge: e.target.value}}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" placeholder="0" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Max Order Amount for COD</label>
-                        <input type="number" value={config.payment.cod.maxOrderAmount} onChange={(e) => { setConfig({...config, payment: {...config.payment, cod: {...config.payment.cod, maxOrderAmount: e.target.value}}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" placeholder="Leave empty for no limit" />
-                      </div>
-                    </div>
-                  </CardContent>
-                )}
-                <div className="p-4 bg-slate-50 border-t border-slate-100 mt-auto flex justify-end">
-                  <Button onClick={handleChange} className="bg-emerald-600 hover:bg-emerald-700 text-white">Save And Update</Button>
-                </div>
-              </Card>
-
-            </div>
-          </TabsContent>
-
-          {/* SMS GATEWAY TAB */}
-          <TabsContent value="sms" className="mt-0 space-y-6">
-            <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden max-w-3xl">
-              <CardHeader className="bg-slate-50 border-b border-slate-100 pb-4 flex flex-row items-center justify-between">
-                <CardTitle className="text-lg font-semibold text-slate-800">SMS Gateway</CardTitle>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-slate-600">{config.sms.enabled ? 'On' : 'Off'}</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={config.sms.enabled} onChange={(e) => { setConfig({...config, sms: {...config.sms, enabled: e.target.checked}}); handleChange(); }} />
-                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                  </label>
-                </div>
-              </CardHeader>
-              {config.sms.enabled && (
-                <CardContent className="p-6 space-y-6">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Provider</label>
-                    <select value={config.sms.provider} onChange={(e) => { setConfig({...config, sms: {...config.sms, provider: e.target.value}}); handleChange(); }} className="w-full md:w-1/2 px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500">
-                      <option value="BulkSMSBD">BulkSMSBD</option>
-                      <option value="SSL Wireless">SSL Wireless</option>
-                      <option value="Custom API">Custom API</option>
-                    </select>
-                  </div>
-
-                  {config.sms.provider === 'Custom API' ? (
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">API URL Endpoint</label>
-                      <input type="text" value={config.sms.customUrl} onChange={(e) => { setConfig({...config, sms: {...config.sms, customUrl: e.target.value}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" placeholder="https://api.sms.com/send?key=...&to=..." />
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-slate-700 mb-1">API Key</label>
-                        <input type="text" value={config.sms.apiKey} onChange={(e) => { setConfig({...config, sms: {...config.sms, apiKey: e.target.value}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Sender ID / Masking</label>
-                        <input type="text" value={config.sms.senderId} onChange={(e) => { setConfig({...config, sms: {...config.sms, senderId: e.target.value}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">API Secret</label>
-                        <div className="relative">
-                          <input type={showSmsSecret ? 'text' : 'password'} value={config.sms.apiSecret} onChange={(e) => { setConfig({...config, sms: {...config.sms, apiSecret: e.target.value}}); handleChange(); }} className="w-full pl-4 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                          <button type="button" onClick={() => setShowSmsSecret(!showSmsSecret)} className="absolute inset-y-0 right-3 flex items-center text-slate-400 hover:text-slate-600">
-                            {showSmsSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mt-6">
-                    <h4 className="text-sm font-semibold text-slate-800 mb-3">Send Test SMS</h4>
-                    <div className="flex items-center gap-3">
-                      <input type="text" placeholder="+880 1..." className="w-full md:w-64 px-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-sm" />
-                      <Button variant="outline" onClick={() => alert('Test SMS Sent (Mock)')}>Send Test</Button>
-                    </div>
-                  </div>
-
-                  <div className="pt-6 border-t border-slate-100">
-                    <h4 className="text-sm font-semibold text-slate-800 mb-3">SMS Templates</h4>
-                    <div className="border border-slate-200 rounded-lg divide-y divide-slate-100">
-                      {config.sms.templates.map(tpl => (
-                        <div key={tpl.id} className="p-3 flex items-center justify-between hover:bg-slate-50">
-                          <div>
-                            <div className="font-medium text-sm text-slate-800">{tpl.event}</div>
-                            <div className="text-xs text-slate-500 truncate max-w-[200px] sm:max-w-xs">{tpl.template}</div>
-                          </div>
-                          <Button variant="ghost" size="icon" onClick={() => alert(`Open dialog to edit ${tpl.event} template`)}><Edit2 className="w-4 h-4 text-slate-500" /></Button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </CardContent>
-              )}
-              <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
-                <Button onClick={handleChange} className="bg-emerald-600 hover:bg-emerald-700 text-white">Save And Update</Button>
-              </div>
-            </Card>
-          </TabsContent>
-
-          {/* MAIL CONFIG TAB */}
-          <TabsContent value="mail" className="mt-0 space-y-6">
-            <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden max-w-3xl">
-              <CardHeader className="bg-slate-50 border-b border-slate-100 pb-4 flex flex-row items-center justify-between">
-                <CardTitle className="text-lg font-semibold text-slate-800">Mail Config</CardTitle>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-slate-600">{config.mail.enabled ? 'On' : 'Off'}</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={config.mail.enabled} onChange={(e) => { setConfig({...config, mail: {...config.mail, enabled: e.target.checked}}); handleChange(); }} />
-                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                  </label>
-                </div>
-              </CardHeader>
-              {config.mail.enabled && (
-                <CardContent className="p-6 space-y-6">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Mail Driver</label>
-                    <select value={config.mail.driver} onChange={(e) => { setConfig({...config, mail: {...config.mail, driver: e.target.value}}); handleChange(); }} className="w-full md:w-1/2 px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500">
-                      <option value="smtp">SMTP</option>
-                      <option value="sendmail">Sendmail</option>
-                    </select>
-                  </div>
-                  
-                  {config.mail.driver === 'smtp' && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Host</label>
-                        <input type="text" value={config.mail.host} onChange={(e) => { setConfig({...config, mail: {...config.mail, host: e.target.value}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Port</label>
-                        <input type="text" value={config.mail.port} onChange={(e) => { setConfig({...config, mail: {...config.mail, port: e.target.value}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Username</label>
-                        <input type="text" value={config.mail.username} onChange={(e) => { setConfig({...config, mail: {...config.mail, username: e.target.value}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Password</label>
-                        <div className="relative">
-                          <input type={showMailPass ? 'text' : 'password'} value={config.mail.password} onChange={(e) => { setConfig({...config, mail: {...config.mail, password: e.target.value}}); handleChange(); }} className="w-full pl-4 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                          <button type="button" onClick={() => setShowMailPass(!showMailPass)} className="absolute inset-y-0 right-3 flex items-center text-slate-400 hover:text-slate-600">
-                            {showMailPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                        </div>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Encryption</label>
-                        <select value={config.mail.encryption} onChange={(e) => { setConfig({...config, mail: {...config.mail, encryption: e.target.value}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500">
-                          <option value="tls">TLS</option>
-                          <option value="ssl">SSL</option>
-                          <option value="none">None</option>
-                        </select>
-                      </div>
-                    </div>
-                  )}
-
-                  {config.mail.driver === 'sendmail' && (
-                    <div className="bg-slate-50 p-4 border border-slate-200 rounded-lg text-sm text-slate-600">
-                      Sendmail driver uses the server's local mail binary. Ensure your server is configured correctly.
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-slate-100 pt-6">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">From Name</label>
-                      <input type="text" value={config.mail.fromName} onChange={(e) => { setConfig({...config, mail: {...config.mail, fromName: e.target.value}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">From Email</label>
-                      <input type="email" value={config.mail.fromEmail} onChange={(e) => { setConfig({...config, mail: {...config.mail, fromEmail: e.target.value}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mt-6">
-                    <h4 className="text-sm font-semibold text-slate-800 mb-3">Send Test Email</h4>
-                    <div className="flex items-center gap-3">
-                      <input type="email" placeholder="test@example.com" className="w-full md:w-64 px-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 text-sm" />
-                      <Button variant="outline" onClick={() => alert('Test Email Sent (Mock)')}>Send Test</Button>
-                    </div>
-                  </div>
-
-                  <div className="pt-6 border-t border-slate-100">
-                    <h4 className="text-sm font-semibold text-slate-800 mb-3">Email Templates</h4>
-                    <div className="border border-slate-200 rounded-lg divide-y divide-slate-100">
-                      {config.mail.templates.map(tpl => (
-                        <div key={tpl.id} className="p-3 flex items-center justify-between hover:bg-slate-50">
-                          <div>
-                            <div className="font-medium text-sm text-slate-800">{tpl.event}</div>
-                          </div>
-                          <Button variant="ghost" size="icon" onClick={() => alert(`Open HTML editor for ${tpl.event} template`)}><Edit2 className="w-4 h-4 text-slate-500" /></Button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </CardContent>
-              )}
-              <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
-                <Button onClick={handleChange} className="bg-emerald-600 hover:bg-emerald-700 text-white">Save And Update</Button>
-              </div>
-            </Card>
-          </TabsContent>
-
-          {/* FIREBASE NOTIFICATION TAB */}
-          <TabsContent value="firebase" className="mt-0 space-y-6">
-            <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden max-w-2xl">
-              <CardHeader className="bg-slate-50 border-b border-slate-100 pb-4 flex flex-row items-center justify-between">
-                <CardTitle className="text-lg font-semibold text-slate-800">Firebase Notification</CardTitle>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-slate-600">{config.firebase.enabled ? 'On' : 'Off'}</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={config.firebase.enabled} onChange={(e) => { setConfig({...config, firebase: {...config.firebase, enabled: e.target.checked}}); handleChange(); }} />
-                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                  </label>
-                </div>
-              </CardHeader>
-              {config.firebase.enabled && (
-                <CardContent className="p-6 space-y-6">
-                  <div className="grid grid-cols-1 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Project ID</label>
-                      <input type="text" value={config.firebase.projectId} onChange={(e) => { setConfig({...config, firebase: {...config.firebase, projectId: e.target.value}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Server Key / Cloud Messaging Key</label>
-                      <div className="relative">
-                        <input type={showFirebaseKey ? 'text' : 'password'} value={config.firebase.serverKey} onChange={(e) => { setConfig({...config, firebase: {...config.firebase, serverKey: e.target.value}}); handleChange(); }} className="w-full pl-4 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                        <button type="button" onClick={() => setShowFirebaseKey(!showFirebaseKey)} className="absolute inset-y-0 right-3 flex items-center text-slate-400 hover:text-slate-600">
-                          {showFirebaseKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Sender ID</label>
-                      <input type="text" value={config.firebase.senderId} onChange={(e) => { setConfig({...config, firebase: {...config.firebase, senderId: e.target.value}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Config JSON File</label>
-                      <div className="border-2 border-dashed border-slate-200 rounded-xl p-6 flex flex-col items-center justify-center bg-slate-50 group hover:border-emerald-400 transition-colors cursor-pointer" onClick={() => {
-                          setConfig({...config, firebase: {...config.firebase, configFileName: "google-services.json"}}); handleChange(); 
-                      }}>
-                        <UploadCloud className="w-6 h-6 text-slate-400 mb-2 group-hover:text-emerald-500" />
-                        <div className="text-sm font-medium text-slate-700 mb-1">Upload google-services.json / firebase config</div>
-                        <div className="text-xs text-slate-500">{config.firebase.configFileName || 'No file selected (Click to mock upload)'}</div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 pt-2">
-                    <div className={`w-2 h-2 rounded-full ${config.firebase.projectId && config.firebase.serverKey ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
-                    <span className="text-sm font-medium text-slate-600">{config.firebase.projectId && config.firebase.serverKey ? 'Connected' : 'Not Configured'}</span>
-                  </div>
-                </CardContent>
-              )}
-              <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
-                <Button onClick={handleChange} className="bg-emerald-600 hover:bg-emerald-700 text-white">Save And Update</Button>
-              </div>
-            </Card>
-          </TabsContent>
-
-          {/* GOOGLE RECAPTCHA TAB */}
-          <TabsContent value="recaptcha" className="mt-0 space-y-6">
-            <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden max-w-2xl">
-              <CardHeader className="bg-slate-50 border-b border-slate-100 pb-4 flex flex-row items-center justify-between">
-                <CardTitle className="text-lg font-semibold text-slate-800">Google ReCaptcha</CardTitle>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-slate-600">{config.recaptcha.enabled ? 'On' : 'Off'}</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" checked={config.recaptcha.enabled} onChange={(e) => { setConfig({...config, recaptcha: {...config.recaptcha, enabled: e.target.checked}}); handleChange(); }} />
-                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                  </label>
-                </div>
-              </CardHeader>
-              {config.recaptcha.enabled && (
-                <CardContent className="p-6 space-y-6">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">ReCaptcha Version</label>
-                    <div className="flex gap-6">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" name="recaptchaVersion" value="v2" checked={config.recaptcha.version === 'v2'} onChange={(e) => { setConfig({...config, recaptcha: {...config.recaptcha, version: 'v2'}}); handleChange(); }} className="text-emerald-600 focus:ring-emerald-500" />
-                        <span className="text-sm text-slate-700">v2 (Checkbox)</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" name="recaptchaVersion" value="v3" checked={config.recaptcha.version === 'v3'} onChange={(e) => { setConfig({...config, recaptcha: {...config.recaptcha, version: 'v3'}}); handleChange(); }} className="text-emerald-600 focus:ring-emerald-500" />
-                        <span className="text-sm text-slate-700">v3 (Score-based)</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {config.recaptcha.version === 'v3' && (
-                    <div className="bg-slate-50 p-4 border border-slate-200 rounded-lg">
-                      <div className="flex justify-between items-center mb-2">
-                        <label className="text-sm font-medium text-slate-700">Minimum Score Threshold</label>
-                        <span className="text-sm font-bold text-emerald-600">{config.recaptcha.minScore}</span>
-                      </div>
-                      <input 
-                        type="range" min="0" max="1" step="0.1" 
-                        value={config.recaptcha.minScore} 
-                        onChange={(e) => { setConfig({...config, recaptcha: {...config.recaptcha, minScore: parseFloat(e.target.value)}}); handleChange(); }} 
-                        className="w-full accent-emerald-600" 
-                      />
-                      <div className="flex justify-between text-xs text-slate-500 mt-1">
-                        <span>0.0 (Allow all)</span>
-                        <span>1.0 (Most strict)</span>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Site Key</label>
-                      <input type="text" value={config.recaptcha.siteKey} onChange={(e) => { setConfig({...config, recaptcha: {...config.recaptcha, siteKey: e.target.value}}); handleChange(); }} className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Secret Key</label>
-                      <div className="relative">
-                        <input type={showRecaptchaSecret ? 'text' : 'password'} value={config.recaptcha.secretKey} onChange={(e) => { setConfig({...config, recaptcha: {...config.recaptcha, secretKey: e.target.value}}); handleChange(); }} className="w-full pl-4 pr-10 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500" />
-                        <button type="button" onClick={() => setShowRecaptchaSecret(!showRecaptchaSecret)} className="absolute inset-y-0 right-3 flex items-center text-slate-400 hover:text-slate-600">
-                          {showRecaptchaSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="pt-4 border-t border-slate-100">
-                    <label className="block text-sm font-medium text-slate-700 mb-3">Applies To</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      {[
-                        { key: 'login', label: 'Login Page' },
-                        { key: 'registration', label: 'Registration Page' },
-                        { key: 'contact', label: 'Contact Us Form' },
-                        { key: 'ticket', label: 'Support Ticket Form' },
-                      ].map((item) => (
-                        <label key={item.key} className="flex items-center gap-3 cursor-pointer">
-                          <input 
-                            type="checkbox" 
-                            checked={(config.recaptcha.appliesTo as any)[item.key]} 
-                            onChange={(e) => { 
-                              const k = item.key as keyof typeof config.recaptcha.appliesTo;
-                              setConfig({...config, recaptcha: {...config.recaptcha, appliesTo: {...config.recaptcha.appliesTo, [k]: e.target.checked}}}); 
-                              handleChange(); 
-                            }} 
-                            className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" 
-                          />
-                          <span className="text-sm text-slate-700">{item.label}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                </CardContent>
-              )}
-              <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
-                <Button onClick={handleChange} className="bg-emerald-600 hover:bg-emerald-700 text-white">Save And Update</Button>
-              </div>
-            </Card>
-          </TabsContent>
-        </Tabs>
-      </div>
-
-      {/* RIGHT COLUMN: Sticky Save */}
-      <div className="w-full lg:w-80 flex-shrink-0">
-        <div className="sticky top-6">
-          <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden">
-            <CardHeader className="bg-slate-50 border-b border-slate-100 pb-4">
-              <CardTitle className="text-base font-semibold text-slate-800 flex items-center gap-2">
-                Save Changes
-                {hasChanges && <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-6 space-y-6">
-              <p className="text-sm text-slate-600">
-                {hasChanges 
-                  ? "You have unsaved changes across your configuration tabs." 
-                  : "All 3rd party configurations are up to date."}
-              </p>
-              <button
-                onClick={() => {
-                  alert('3rd party configurations saved successfully!');
-                  setHasChanges(false);
-                }}
-                className={`w-full py-2 rounded-lg font-medium transition-colors ${
-                  hasChanges 
-                    ? 'bg-emerald-600 text-white hover:bg-emerald-700' 
-                    : 'bg-emerald-100 text-emerald-800'
-                }`}
-              >
-                Save All Settings
-              </button>
-            </CardContent>
-          </Card>
+    <div className="space-y-6">
+      <div className="flex justify-between items-center bg-white p-4 rounded-xl border shadow-sm">
+        <div>
+          <h2 className="text-base font-bold text-slate-800">3rd Party Integrations & Gateways</h2>
+          <p className="text-xs text-slate-500">Manage credentials for bKash, SSLCommerz, SMS, SMTP, Firebase, and reCAPTCHA</p>
         </div>
       </div>
+
+      <Tabs defaultValue="payment" className="w-full">
+        <TabsList className="bg-slate-100 p-1 rounded-lg w-full justify-start h-auto flex-wrap mb-4">
+          <TabsTrigger value="payment" className="rounded-md px-4 py-2 text-xs font-bold flex items-center gap-1.5">
+            <CreditCard className="w-3.5 h-3.5" /> Payment Gateways
+          </TabsTrigger>
+          <TabsTrigger value="sms" className="rounded-md px-4 py-2 text-xs font-bold flex items-center gap-1.5">
+            <MessageSquare className="w-3.5 h-3.5" /> SMS Provider
+          </TabsTrigger>
+          <TabsTrigger value="mail" className="rounded-md px-4 py-2 text-xs font-bold flex items-center gap-1.5">
+            <Mail className="w-3.5 h-3.5" /> SMTP Mail
+          </TabsTrigger>
+          <TabsTrigger value="firebase" className="rounded-md px-4 py-2 text-xs font-bold flex items-center gap-1.5">
+            <FileJson className="w-3.5 h-3.5" /> Firebase Push
+          </TabsTrigger>
+          <TabsTrigger value="recaptcha" className="rounded-md px-4 py-2 text-xs font-bold flex items-center gap-1.5">
+            <ShieldAlert className="w-3.5 h-3.5" /> Google reCAPTCHA
+          </TabsTrigger>
+        </TabsList>
+
+        {/* PAYMENT GATEWAY TAB */}
+        <TabsContent value="payment" className="space-y-6 mt-0">
+          <div className="flex justify-end">
+            <Button onClick={handleSavePaymentGateways} disabled={isSaving} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs">
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <span className="flex items-center gap-1.5"><Save className="w-4 h-4" /> Save Gateways</span>}
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* bKash Card */}
+            <Card className="border-slate-200 shadow-sm rounded-xl">
+              <CardHeader className="bg-slate-50 border-b pb-4 flex flex-row items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-pink-600 text-white font-bold flex items-center justify-center text-sm">
+                    b
+                  </div>
+                  <CardTitle className="text-base font-bold text-slate-800">bKash Tokenized Checkout</CardTitle>
+                </div>
+                <Switch
+                  checked={bkash.isActive}
+                  onCheckedChange={(val) => setBkash({ ...bkash, isActive: val })}
+                />
+              </CardHeader>
+              <CardContent className="p-6 space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-slate-700">Gateway Mode</Label>
+                    <Select
+                      value={bkash.mode}
+                      onValueChange={(val) => setBkash({ ...bkash, mode: val })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Sandbox">Sandbox (Test)</SelectItem>
+                        <SelectItem value="Live">Live (Production)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-slate-700">Display Title</Label>
+                    <Input
+                      value={bkash.title}
+                      onChange={(e) => setBkash({ ...bkash, title: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-slate-700">bKash App Key</Label>
+                  <Input
+                    value={bkash.credentials?.appKey || ""}
+                    onChange={(e) => setBkash({ ...bkash, credentials: { ...bkash.credentials, appKey: e.target.value } })}
+                    placeholder="Enter bKash App Key"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-slate-700">bKash App Secret Key</Label>
+                  <Input
+                    type="password"
+                    value={bkash.credentials?.appSecretKey || ""}
+                    onChange={(e) => setBkash({ ...bkash, credentials: { ...bkash.credentials, appSecretKey: e.target.value } })}
+                    placeholder="Enter bKash App Secret"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-slate-700">API Username</Label>
+                    <Input
+                      value={bkash.credentials?.username || ""}
+                      onChange={(e) => setBkash({ ...bkash, credentials: { ...bkash.credentials, username: e.target.value } })}
+                      placeholder="Merchant username"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-slate-700">API Password</Label>
+                    <div className="relative">
+                      <Input
+                        type={showBkashPass ? "text" : "password"}
+                        value={bkash.credentials?.password || ""}
+                        onChange={(e) => setBkash({ ...bkash, credentials: { ...bkash.credentials, password: e.target.value } })}
+                        placeholder="Merchant password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowBkashPass(!showBkashPass)}
+                        className="absolute right-2.5 top-2.5 text-slate-400"
+                      >
+                        {showBkashPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* SSLCommerz Card */}
+            <Card className="border-slate-200 shadow-sm rounded-xl">
+              <CardHeader className="bg-slate-50 border-b pb-4 flex flex-row items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-bold flex items-center justify-center text-sm">
+                    SSL
+                  </div>
+                  <CardTitle className="text-base font-bold text-slate-800">SSLCommerz Hosted Session</CardTitle>
+                </div>
+                <Switch
+                  checked={ssl.isActive}
+                  onCheckedChange={(val) => setSsl({ ...ssl, isActive: val })}
+                />
+              </CardHeader>
+              <CardContent className="p-6 space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-slate-700">Gateway Mode</Label>
+                    <Select
+                      value={ssl.mode}
+                      onValueChange={(val) => setSsl({ ...ssl, mode: val })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Sandbox">Sandbox (Test)</SelectItem>
+                        <SelectItem value="Live">Live (Production)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-bold text-slate-700">Display Title</Label>
+                    <Input
+                      value={ssl.title}
+                      onChange={(e) => setSsl({ ...ssl, title: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-slate-700">Store ID</Label>
+                  <Input
+                    value={ssl.credentials?.storeId || ""}
+                    onChange={(e) => setSsl({ ...ssl, credentials: { ...ssl.credentials, storeId: e.target.value } })}
+                    placeholder="Merchant Store ID"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-slate-700">Store Password</Label>
+                  <div className="relative">
+                    <Input
+                      type={showSslPass ? "text" : "password"}
+                      value={ssl.credentials?.storePassword || ""}
+                      onChange={(e) => setSsl({ ...ssl, credentials: { ...ssl.credentials, storePassword: e.target.value } })}
+                      placeholder="Store Secret Password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowSslPass(!showSslPass)}
+                      className="absolute right-2.5 top-2.5 text-slate-400"
+                    >
+                      {showSslPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Cash on Delivery Card */}
+            <Card className="border-slate-200 shadow-sm rounded-xl lg:col-span-2">
+              <CardHeader className="bg-slate-50 border-b pb-4 flex flex-row items-center justify-between">
+                <CardTitle className="text-base font-bold text-slate-800">Cash on Delivery (COD)</CardTitle>
+                <Switch
+                  checked={cod.isActive}
+                  onCheckedChange={(val) => setCod({ ...cod, isActive: val })}
+                />
+              </CardHeader>
+              <CardContent className="p-6">
+                <div className="space-y-1.5 max-w-md">
+                  <Label className="text-xs font-bold text-slate-700">Title on Checkout Screen</Label>
+                  <Input
+                    value={cod.title}
+                    onChange={(e) => setCod({ ...cod, title: e.target.value })}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* SMS CONFIG TAB */}
+        <TabsContent value="sms" className="space-y-4 mt-0">
+          <Card className="border-slate-200 shadow-sm rounded-xl">
+            <CardHeader className="bg-slate-50 border-b pb-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-base font-bold text-slate-800">SMS Gateway Configuration</CardTitle>
+              <Switch
+                checked={sms.isActive}
+                onCheckedChange={(val) => setSms({ ...sms, isActive: val })}
+              />
+            </CardHeader>
+            <CardContent className="p-6 space-y-4 max-w-xl">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-700">SMS Gateway Provider</Label>
+                <Select
+                  value={sms.provider}
+                  onValueChange={(val) => setSms({ ...sms, provider: val })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="GREENWEB">Greenweb BD</SelectItem>
+                    <SelectItem value="ONNOROKOM">Onnorokom SMS</SelectItem>
+                    <SelectItem value="MIM_SMS">MiM SMS</SelectItem>
+                    <SelectItem value="TWILIO">Twilio</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-700">API Key / Token</Label>
+                <Input
+                  value={sms.apiKey || ""}
+                  onChange={(e) => setSms({ ...sms, apiKey: e.target.value })}
+                  placeholder="Enter API Key"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-700">Sender ID (Masking / Non-Masking)</Label>
+                <Input
+                  value={sms.senderId || ""}
+                  onChange={(e) => setSms({ ...sms, senderId: e.target.value })}
+                  placeholder="e.g. NovaMobile"
+                />
+              </div>
+
+              <Button onClick={handleSaveSms} disabled={isSaving} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs">
+                Save SMS Settings
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* MAIL CONFIG TAB */}
+        <TabsContent value="mail" className="space-y-4 mt-0">
+          <Card className="border-slate-200 shadow-sm rounded-xl">
+            <CardHeader className="bg-slate-50 border-b pb-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-base font-bold text-slate-800">SMTP Email Server</CardTitle>
+              <Switch
+                checked={mail.isActive}
+                onCheckedChange={(val) => setMail({ ...mail, isActive: val })}
+              />
+            </CardHeader>
+            <CardContent className="p-6 space-y-4 max-w-xl">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-slate-700">SMTP Host</Label>
+                  <Input
+                    value={mail.host || ""}
+                    onChange={(e) => setMail({ ...mail, host: e.target.value })}
+                    placeholder="smtp.gmail.com"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-slate-700">SMTP Port</Label>
+                  <Input
+                    type="number"
+                    value={mail.port || 587}
+                    onChange={(e) => setMail({ ...mail, port: Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-700">SMTP Username</Label>
+                <Input
+                  value={mail.username || ""}
+                  onChange={(e) => setMail({ ...mail, username: e.target.value })}
+                  placeholder="contact@novamobile.com"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-700">SMTP Password</Label>
+                <div className="relative">
+                  <Input
+                    type={showMailPass ? "text" : "password"}
+                    value={mail.password || ""}
+                    onChange={(e) => setMail({ ...mail, password: e.target.value })}
+                    placeholder="App password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowMailPass(!showMailPass)}
+                    className="absolute right-2.5 top-2.5 text-slate-400"
+                  >
+                    {showMailPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-slate-700">Sender Email</Label>
+                  <Input
+                    value={mail.fromEmail || ""}
+                    onChange={(e) => setMail({ ...mail, fromEmail: e.target.value })}
+                    placeholder="noreply@novamobile.com"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-bold text-slate-700">Sender Name</Label>
+                  <Input
+                    value={mail.fromName || ""}
+                    onChange={(e) => setMail({ ...mail, fromName: e.target.value })}
+                    placeholder="NovaMobile"
+                  />
+                </div>
+              </div>
+
+              <Button onClick={handleSaveMail} disabled={isSaving} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs">
+                Save Mail Settings
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* FIREBASE CONFIG TAB */}
+        <TabsContent value="firebase" className="space-y-4 mt-0">
+          <Card className="border-slate-200 shadow-sm rounded-xl">
+            <CardHeader className="bg-slate-50 border-b pb-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-base font-bold text-slate-800">Firebase Cloud Messaging</CardTitle>
+              <Switch
+                checked={firebase.isActive}
+                onCheckedChange={(val) => setFirebase({ ...firebase, isActive: val })}
+              />
+            </CardHeader>
+            <CardContent className="p-6 space-y-4 max-w-xl">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-700">Firebase Project ID</Label>
+                <Input
+                  value={firebase.projectId || ""}
+                  onChange={(e) => setFirebase({ ...firebase, projectId: e.target.value })}
+                  placeholder="novamobile-fcm-project"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-700">API Key</Label>
+                <Input
+                  value={firebase.apiKey || ""}
+                  onChange={(e) => setFirebase({ ...firebase, apiKey: e.target.value })}
+                  placeholder="AIzaSy..."
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-700">Server Key / Secret</Label>
+                <Input
+                  type="password"
+                  value={firebase.serverKey || ""}
+                  onChange={(e) => setFirebase({ ...firebase, serverKey: e.target.value })}
+                  placeholder="FCM Server Key"
+                />
+              </div>
+
+              <Button onClick={handleSaveFirebase} disabled={isSaving} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs">
+                Save Firebase Settings
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* RECAPTCHA CONFIG TAB */}
+        <TabsContent value="recaptcha" className="space-y-4 mt-0">
+          <Card className="border-slate-200 shadow-sm rounded-xl">
+            <CardHeader className="bg-slate-50 border-b pb-4 flex flex-row items-center justify-between">
+              <CardTitle className="text-base font-bold text-slate-800">Google reCAPTCHA Protection</CardTitle>
+              <Switch
+                checked={recaptcha.isActive}
+                onCheckedChange={(val) => setRecaptcha({ ...recaptcha, isActive: val })}
+              />
+            </CardHeader>
+            <CardContent className="p-6 space-y-4 max-w-xl">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-700">Site Key</Label>
+                <Input
+                  value={recaptcha.siteKey || ""}
+                  onChange={(e) => setRecaptcha({ ...recaptcha, siteKey: e.target.value })}
+                  placeholder="6LeIxacTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-700">Secret Key</Label>
+                <Input
+                  type="password"
+                  value={recaptcha.secretKey || ""}
+                  onChange={(e) => setRecaptcha({ ...recaptcha, secretKey: e.target.value })}
+                  placeholder="6LeIxacTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe"
+                />
+              </div>
+
+              <Button onClick={handleSaveRecaptcha} disabled={isSaving} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs">
+                Save reCAPTCHA Settings
+              </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -277,17 +277,58 @@ export class PayrollService {
         });
 
         const monthStr = payroll.month.toISOString().slice(0, 7);
-        walletTxn = await tx.walletTransaction.create({
-          data: {
-            walletTypeId: dto.walletTypeId,
-            type: WalletTxnType.WITHDRAWAL,
-            amount: netSalary,
-            referenceNo: `PAY-${payroll.id.slice(-6).toUpperCase()}-${Date.now()}`,
-            note: `Salary payment for ${payroll.staff.name} (${payroll.staff.employeeId}) for ${monthStr}`,
-            recordedById,
-            balanceAfter: newBal,
-          },
-        });
+        const createdTxns: any[] = [];
+        let runningBal = currentBal;
+
+        const basicSalary = Number(payroll.basicSalary || 0);
+        const allowancesObj = payroll.allowances && typeof payroll.allowances === 'object'
+          ? (payroll.allowances as Record<string, number>)
+          : {};
+
+        const hasAllowances = Object.keys(allowancesObj).length > 0;
+
+        if (basicSalary > 0 || !hasAllowances) {
+          const salaryAmount = basicSalary > 0 ? basicSalary : netSalary;
+          runningBal -= salaryAmount;
+          const salTxn = await tx.walletTransaction.create({
+            data: {
+              walletTypeId: dto.walletTypeId,
+              type: WalletTxnType.WITHDRAWAL,
+              payType: 'SALARY',
+              staffId: payroll.staffId,
+              amount: salaryAmount,
+              referenceNo: `PAY-SAL-${payroll.id.slice(-6).toUpperCase()}-${Date.now()}`,
+              note: dto.note || `Salary payment for ${payroll.staff.name} (${payroll.staff.employeeId}) for ${monthStr}`,
+              recordedById,
+              balanceAfter: runningBal,
+            },
+          });
+          createdTxns.push(salTxn);
+        }
+
+        let alwIndex = 1;
+        for (const [key, val] of Object.entries(allowancesObj)) {
+          const alwVal = Number(val);
+          if (alwVal > 0) {
+            runningBal -= alwVal;
+            const alwTxn = await tx.walletTransaction.create({
+              data: {
+                walletTypeId: dto.walletTypeId,
+                type: WalletTxnType.WITHDRAWAL,
+                payType: 'ALLOWANCE',
+                staffId: payroll.staffId,
+                amount: alwVal,
+                referenceNo: `PAY-ALW-${payroll.id.slice(-6).toUpperCase()}-${Date.now()}-${alwIndex++}`,
+                note: `Allowance (${key}) for ${payroll.staff.name} (${payroll.staff.employeeId}) for ${monthStr}`,
+                recordedById,
+                balanceAfter: runningBal,
+              },
+            });
+            createdTxns.push(alwTxn);
+          }
+        }
+
+        walletTxn = createdTxns[0] || null;
       }
 
       const updatedPayroll = await tx.payroll.update({

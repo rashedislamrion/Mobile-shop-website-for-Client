@@ -11,11 +11,14 @@ import {
   Power,
   User,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  Wrench,
+  PlusCircle,
+  PieChart
 } from "lucide-react";
 import { adminNavConfig, NavItem } from "@/lib/mock-data/admin-nav";
 import { useAdminPage } from "@/contexts/AdminPageContext";
-import { useAuth } from "@/context/AuthContext";
+import { useStaffAuth } from "@/context/AuthContext";
 import {
   Collapsible,
   CollapsibleContent,
@@ -93,7 +96,7 @@ function NavItemComponent({ item, isCollapsed, level = 0 }: { item: NavItem, isC
 
 export function AdminSidebar() {
   const { isSidebarCollapsed, setIsSidebarCollapsed } = useAdminPage();
-  const { user, hasPermission, logout } = useAuth();
+  const { user, hasPermission, logout } = useStaffAuth();
   const router = useRouter();
 
   const handleLogout = async () => {
@@ -135,7 +138,37 @@ export function AdminSidebar() {
     return hasPermission(item.module, "READ");
   };
 
-  const visibleNavConfig = !isRestrictedStaff
+  const isTechnician = roleName.includes("technician");
+
+  const technicianNavConfig = [
+    {
+      groupLabel: "MY WORKSPACE",
+      items: [
+        {
+          label: "Technician Workspace",
+          href: "/admin/technician",
+          icon: Wrench,
+          module: "SALES",
+        },
+        {
+          label: "Create New Service",
+          href: "/admin/servicing/create",
+          icon: PlusCircle,
+          module: "SALES",
+        },
+        {
+          label: "Servicing Report",
+          href: "/admin/reports/service-sales",
+          icon: PieChart,
+          module: "REPORT",
+        },
+      ],
+    },
+  ];
+
+  const visibleNavConfig = isTechnician
+    ? technicianNavConfig
+    : !isRestrictedStaff
     ? adminNavConfig
     : adminNavConfig
         .map((group) => ({

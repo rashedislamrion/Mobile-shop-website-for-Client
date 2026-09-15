@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -10,7 +11,7 @@ import { slugify } from '../common/utils/slug.util';
 import { Prisma, ProductStatus } from '@prisma/client';
 import * as fs from 'fs';
 import { join } from 'path';
-import { getUploadRoot } from '../common/upload/multer.config';
+import { getUploadRoot, resolveUploadedFiles } from '../common/upload/multer.config';
 
 @Injectable()
 export class ProductService {
@@ -39,6 +40,34 @@ export class ProductService {
     }
   }
 
+  private async generateUniqueCode(providedCode?: string, existingId?: string): Promise<string> {
+    if (providedCode && providedCode.trim()) {
+      const trimmed = providedCode.trim();
+      const existing = await this.prisma.product.findFirst({
+        where: {
+          code: trimmed,
+          ...(existingId ? { id: { not: existingId } } : {}),
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        throw new ConflictException(`Product code "${trimmed}" already exists.`);
+      }
+      return trimmed;
+    }
+
+    while (true) {
+      const randomCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const existing = await this.prisma.product.findUnique({
+        where: { code: randomCode },
+        select: { id: true },
+      });
+      if (!existing) {
+        return randomCode;
+      }
+    }
+  }
+
   async findAllPublic(query: {
     category?: string;
     brand?: string;
@@ -52,6 +81,11 @@ export class ProductService {
     page?: number;
     limit?: number;
     search?: string;
+    featured?: string | boolean;
+    bestDeal?: string | boolean;
+    homepage?: string | boolean;
+    newest?: string | boolean;
+    productCategory?: string;
   }) {
     const page = Math.max(1, Number(query.page) || 1);
     const limit = Math.max(1, Math.min(100, Number(query.limit) || 12));
@@ -60,6 +94,37 @@ export class ProductService {
     const where: Prisma.ProductWhereInput = {
       status: ProductStatus.ACTIVE,
     };
+
+    if (query.featured !== undefined) {
+      where.isFeatured = query.featured === true || query.featured === 'true';
+    }
+    if (query.bestDeal !== undefined) {
+      where.isBestDeal = query.bestDeal === true || query.bestDeal === 'true';
+    }
+    if (query.homepage !== undefined) {
+      where.isHomepage = query.homepage === true || query.homepage === 'true';
+    }
+    if (query.newest !== undefined) {
+      where.isNewest = query.newest === true || query.newest === 'true';
+    }
+
+    if (query.productCategory || (query.type && query.type.toUpperCase() === 'PHONE')) {
+      const catVal = (query.productCategory || query.type || '').toUpperCase();
+      if (catVal === 'PHONE') {
+        where.OR = [
+          { productCategory: 'PHONE' },
+          { productType: { contains: 'phone', mode: 'insensitive' } },
+          { category: { name: { contains: 'phone', mode: 'insensitive' } } },
+          { category: { slug: { contains: 'phone', mode: 'insensitive' } } },
+        ];
+      } else if (catVal === 'SPARE_PART' || catVal === 'SPARE_PARTS') {
+        where.OR = [
+          { productCategory: 'SPARE_PART' },
+          { productType: { contains: 'spare', mode: 'insensitive' } },
+          { category: { name: { contains: 'display', mode: 'insensitive' } } },
+        ];
+      }
+    }
 
     if (query.category) {
       where.OR = [
@@ -129,6 +194,7 @@ export class ProductService {
         {
           OR: [
             { name: { contains: search, mode: 'insensitive' } },
+            { code: { contains: search, mode: 'insensitive' } },
             { description: { contains: search, mode: 'insensitive' } },
             { shortDescription: { contains: search, mode: 'insensitive' } },
             { variants: { some: { sku: { contains: search, mode: 'insensitive' } } } },
@@ -157,7 +223,14 @@ export class ProductService {
         orderBy,
         include: {
           images: { orderBy: { sortOrder: 'asc' } },
-          variants: true,
+          variants: {
+            include: {
+              phoneUnits: {
+                where: { status: 'IN_STOCK' },
+                select: { id: true },
+              },
+            },
+          },
           specifications: true,
           category: { select: { id: true, name: true, slug: true } },
           brand: { select: { id: true, name: true, logo: true } },
@@ -165,8 +238,22 @@ export class ProductService {
       }),
     ]);
 
+    const mappedData = data.map((p) => {
+      const isPhone = p.productCategory === 'PHONE' || p.productType?.toLowerCase() === 'phone' || p.category?.name?.toLowerCase().includes('phone');
+      const mappedVariants = p.variants.map((v: any) => ({
+        ...v,
+        stock: isPhone ? (v.phoneUnits?.length ?? 0) : v.stock,
+      }));
+      const totalStock = mappedVariants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+      return {
+        ...p,
+        variants: mappedVariants,
+        totalStock,
+      };
+    });
+
     return {
-      data,
+      data: mappedData,
       meta: {
         total,
         page,
@@ -179,11 +266,18 @@ export class ProductService {
   async findBySlug(slugOrId: string) {
     const product = await this.prisma.product.findFirst({
       where: {
-        OR: [{ slug: slugOrId }, { id: slugOrId }],
+        OR: [{ slug: slugOrId }, { id: slugOrId }, { code: slugOrId }],
       },
       include: {
         images: { orderBy: { sortOrder: 'asc' } },
-        variants: true,
+        variants: {
+          include: {
+            phoneUnits: {
+              where: { status: 'IN_STOCK' },
+              select: { id: true, imei1: true, imei2: true, branchId: true },
+            },
+          },
+        },
         specifications: true,
         category: true,
         brand: true,
@@ -200,6 +294,14 @@ export class ProductService {
       throw new NotFoundException(`Product with identifier "${slugOrId}" not found`);
     }
 
+    const isPhone = product.productCategory === 'PHONE' || product.productType?.toLowerCase() === 'phone' || product.category?.name?.toLowerCase().includes('phone');
+    const mappedVariants = product.variants.map((v: any) => ({
+      ...v,
+      stock: isPhone ? (v.phoneUnits?.length ?? 0) : v.stock,
+      phoneUnits: undefined, // Never expose raw IMEIs on public storefront
+    }));
+    const totalStock = mappedVariants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0);
+
     const relatedProducts = await this.prisma.product.findMany({
       where: {
         categoryId: product.categoryId,
@@ -209,16 +311,38 @@ export class ProductService {
       take: 8,
       include: {
         images: { orderBy: { sortOrder: 'asc' } },
-        variants: true,
+        variants: {
+          include: {
+            phoneUnits: {
+              where: { status: 'IN_STOCK' },
+              select: { id: true },
+            },
+          },
+        },
         category: { select: { id: true, name: true, slug: true } },
         brand: { select: { id: true, name: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
 
+    const mappedRelated = relatedProducts.map((p) => {
+      const relIsPhone = p.productType?.toLowerCase() === 'phone';
+      const relVariants = p.variants.map((v: any) => ({
+        ...v,
+        stock: relIsPhone ? (v.phoneUnits?.length ?? 0) : v.stock,
+      }));
+      return {
+        ...p,
+        variants: relVariants,
+        totalStock: relVariants.reduce((sum, v) => sum + (Number(v.stock) || 0), 0),
+      };
+    });
+
     return {
       ...product,
-      relatedProducts,
+      variants: mappedVariants,
+      totalStock,
+      relatedProducts: mappedRelated,
     };
   }
 
@@ -226,26 +350,59 @@ export class ProductService {
     search?: string;
     categoryId?: string;
     brandId?: string;
+    branchId?: string;
     status?: ProductStatus;
+    homepage?: string | boolean;
+    newest?: string | boolean;
+    featured?: string | boolean;
+    bestDeal?: string | boolean;
+    sort?: string;
     page?: number;
     limit?: number;
   }) {
     const page = Math.max(1, Number(query.page) || 1);
-    const limit = Math.max(1, Math.min(100, Number(query.limit) || 10));
+    const limit = Math.max(1, Math.min(100, Number(query.limit) || 20));
     const skip = (page - 1) * limit;
 
     const where: Prisma.ProductWhereInput = {};
-    if (query.categoryId) where.categoryId = query.categoryId;
-    if (query.brandId) where.brandId = query.brandId;
-    if (query.status) where.status = query.status;
+    if (query.categoryId && query.categoryId !== 'all') where.categoryId = query.categoryId;
+    if (query.brandId && query.brandId !== 'all') where.brandId = query.brandId;
+    if (query.status && query.status !== ('all' as any)) where.status = query.status;
+
+    if (query.homepage !== undefined && query.homepage !== 'all') {
+      where.isHomepage = query.homepage === true || query.homepage === 'true';
+    }
+    if (query.newest !== undefined && query.newest !== 'all') {
+      where.isNewest = query.newest === true || query.newest === 'true';
+    }
+    if (query.featured !== undefined && query.featured !== 'all') {
+      where.isFeatured = query.featured === true || query.featured === 'true';
+    }
+    if (query.bestDeal !== undefined && query.bestDeal !== 'all') {
+      where.isBestDeal = query.bestDeal === true || query.bestDeal === 'true';
+    }
 
     if (query.search) {
       const search = query.search.trim();
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
+        { code: { contains: search, mode: 'insensitive' } },
         { slug: { contains: search, mode: 'insensitive' } },
         { variants: { some: { sku: { contains: search, mode: 'insensitive' } } } },
       ];
+    }
+
+    let orderBy: Prisma.ProductOrderByWithRelationInput | Prisma.ProductOrderByWithRelationInput[] = { createdAt: 'desc' };
+    if (query.sort === 'oldest') {
+      orderBy = { createdAt: 'asc' };
+    } else if (query.sort === 'price_asc') {
+      orderBy = { regularPrice: 'asc' };
+    } else if (query.sort === 'price_desc') {
+      orderBy = { regularPrice: 'desc' };
+    } else if (query.sort === 'name_asc') {
+      orderBy = { name: 'asc' };
+    } else if (query.sort === 'name_desc') {
+      orderBy = { name: 'desc' };
     }
 
     const [total, products] = await Promise.all([
@@ -254,22 +411,44 @@ export class ProductService {
         where,
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         include: {
           images: { orderBy: { sortOrder: 'asc' } },
-          variants: true,
+          variants: {
+            include: {
+              branchInventories: true,
+            },
+          },
           category: { select: { id: true, name: true, slug: true } },
-          brand: { select: { id: true, name: true } },
+          brand: { select: { id: true, name: true, logo: true } },
+          series: { select: { id: true, name: true } },
           unit: { select: { id: true, name: true, shortCode: true } },
           _count: { select: { orderItems: true } },
         },
       }),
     ]);
 
+    const targetBranch = query.branchId && query.branchId !== 'all' ? query.branchId : null;
+
     const data = products.map((p) => {
-      const totalStock = p.variants.reduce((sum, v) => sum + (v.stock || 0), 0);
+      const variantsWithStock = p.variants.map((v) => {
+        let variantStock = Number(v.stock || 0);
+        if (targetBranch) {
+          const bInv = v.branchInventories?.find((b) => b.branchId === targetBranch);
+          variantStock = bInv ? Number(bInv.quantity) : 0;
+        } else if (v.branchInventories && v.branchInventories.length > 0) {
+          variantStock = v.branchInventories.reduce((sum, b) => sum + Number(b.quantity), 0);
+        }
+        return {
+          ...v,
+          stock: variantStock,
+        };
+      });
+
+      const totalStock = variantsWithStock.reduce((sum, v) => sum + v.stock, 0);
       return {
         ...p,
+        variants: variantsWithStock,
         totalStock,
       };
     });
@@ -285,24 +464,70 @@ export class ProductService {
     };
   }
 
+  async updateFlags(
+    id: string,
+    dto: {
+      isNewest?: boolean;
+      isFeatured?: boolean;
+      isHomepage?: boolean;
+      isBestDeal?: boolean;
+    },
+  ) {
+    const existing = await this.prisma.product.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException(`Product with ID "${id}" not found`);
+    }
+
+    return this.prisma.product.update({
+      where: { id },
+      data: {
+        ...(dto.isNewest !== undefined ? { isNewest: dto.isNewest } : {}),
+        ...(dto.isFeatured !== undefined ? { isFeatured: dto.isFeatured } : {}),
+        ...(dto.isHomepage !== undefined ? { isHomepage: dto.isHomepage } : {}),
+        ...(dto.isBestDeal !== undefined ? { isBestDeal: dto.isBestDeal } : {}),
+      },
+    });
+  }
+
   async create(dto: CreateProductDto, files?: Express.Multer.File[]) {
     const slug = await this.generateUniqueSlug(dto.slug || dto.name);
+    const code = await this.generateUniqueCode(dto.code);
+    const categoryId = dto.categoryId || (dto.categoryIds && dto.categoryIds.length > 0 ? dto.categoryIds[0] : undefined);
+
+    if (!categoryId) {
+      throw new BadRequestException('At least one Category must be selected.');
+    }
 
     return this.prisma.$transaction(async (tx) => {
+      const defaultBranch = await tx.branch.findFirst();
+      const branchId = dto.branchId || defaultBranch?.id;
+
       const product = await tx.product.create({
         data: {
+          code,
           name: dto.name,
           slug,
           shortDescription: dto.shortDescription || null,
           description: dto.description || null,
-          categoryId: dto.categoryId,
+          categoryId,
           brandId: dto.brandId || null,
           seriesId: dto.seriesId || null,
           unitId: dto.unitId || null,
-          regularPrice: new Prisma.Decimal(dto.regularPrice),
+          regularPrice: new Prisma.Decimal(dto.regularPrice || 0),
           salePrice: dto.salePrice ? new Prisma.Decimal(dto.salePrice) : null,
           costPrice: dto.costPrice ? new Prisma.Decimal(dto.costPrice) : null,
-          status: dto.status || ProductStatus.DRAFT,
+          buyingPrice: dto.buyingPrice ? new Prisma.Decimal(dto.buyingPrice) : null,
+          wholesalePrice: dto.wholesalePrice ? new Prisma.Decimal(dto.wholesalePrice) : null,
+          minOrderQty: dto.minOrderQty !== undefined ? Number(dto.minOrderQty) : 1,
+          warranty: dto.warranty || null,
+          productType: dto.productType || 'Spare Parts',
+          condition: dto.condition || null,
+          ogImageUrl: dto.ogImageUrl || null,
+          isNewest: dto.isNewest !== undefined ? dto.isNewest : false,
+          isFeatured: dto.isFeatured !== undefined ? dto.isFeatured : false,
+          isHomepage: dto.isHomepage !== undefined ? dto.isHomepage : false,
+          isBestDeal: dto.isBestDeal !== undefined ? dto.isBestDeal : false,
+          status: dto.status || ProductStatus.ACTIVE,
           metaTitle: dto.metaTitle || null,
           metaDescription: dto.metaDescription || null,
           metaKeywords: dto.metaKeywords || null,
@@ -310,35 +535,84 @@ export class ProductService {
       });
 
       if (files && files.length > 0) {
+        const uploadedUrls = await resolveUploadedFiles(files, 'products');
         await tx.productImage.createMany({
-          data: files.map((file, idx) => ({
+          data: uploadedUrls.map((url, idx) => ({
             productId: product.id,
-            url: `/uploads/products/${file.filename}`,
+            url,
             sortOrder: idx,
           })),
         });
       }
 
       if (dto.variants && dto.variants.length > 0) {
-        await tx.productVariant.createMany({
-          data: dto.variants.map((v, idx) => ({
-            productId: product.id,
-            color: v.color || null,
-            quality: v.quality || null,
-            price: new Prisma.Decimal(v.price || dto.regularPrice),
-            stock: Number(v.stock) || 0,
-            sku: v.sku?.trim() || `${slug.toUpperCase()}-V${idx + 1}`,
-          })),
-        });
+        for (let idx = 0; idx < dto.variants.length; idx++) {
+          const v = dto.variants[idx];
+          const variant = await tx.productVariant.create({
+            data: {
+              productId: product.id,
+              color: v.color || null,
+              quality: v.quality || null,
+              price: new Prisma.Decimal(v.price || dto.regularPrice || 0),
+              stock: Number(v.stock) || 0,
+              sku: v.sku?.trim() || `${slug.toUpperCase()}-V${idx + 1}`,
+              buyingPrice: v.buyingPrice ? new Prisma.Decimal(v.buyingPrice) : (dto.buyingPrice ? new Prisma.Decimal(dto.buyingPrice) : null),
+              wholesalePrice: v.wholesalePrice ? new Prisma.Decimal(v.wholesalePrice) : (dto.wholesalePrice ? new Prisma.Decimal(dto.wholesalePrice) : null),
+              discountedPrice: v.discountedPrice ? new Prisma.Decimal(v.discountedPrice) : null,
+              offerPrice: v.offerPrice ? new Prisma.Decimal(v.offerPrice) : null,
+              attributes: v.attributes ? (typeof v.attributes === 'object' ? v.attributes : JSON.parse(v.attributes)) : null,
+            },
+          });
+
+          if (branchId) {
+            await tx.branchInventory.upsert({
+              where: {
+                branchId_productVariantId: {
+                  branchId,
+                  productVariantId: variant.id,
+                },
+              },
+              create: {
+                branchId,
+                productVariantId: variant.id,
+                quantity: Number(v.stock) || 0,
+              },
+              update: {
+                quantity: Number(v.stock) || 0,
+              },
+            });
+          }
+        }
       } else {
-        await tx.productVariant.create({
+        const defVariant = await tx.productVariant.create({
           data: {
             productId: product.id,
-            price: new Prisma.Decimal(dto.regularPrice),
+            price: new Prisma.Decimal(dto.regularPrice || 0),
             stock: 0,
             sku: `${slug.toUpperCase()}-DEFAULT`,
+            buyingPrice: dto.buyingPrice ? new Prisma.Decimal(dto.buyingPrice) : null,
+            wholesalePrice: dto.wholesalePrice ? new Prisma.Decimal(dto.wholesalePrice) : null,
           },
         });
+
+        if (branchId) {
+          await tx.branchInventory.upsert({
+            where: {
+              branchId_productVariantId: {
+                branchId,
+                productVariantId: defVariant.id,
+              },
+            },
+            create: {
+              branchId,
+              productVariantId: defVariant.id,
+              quantity: 0,
+            },
+            update: {
+              quantity: 0,
+            },
+          });
+        }
       }
 
       if (dto.specifications && dto.specifications.length > 0) {
@@ -355,7 +629,11 @@ export class ProductService {
         where: { id: product.id },
         include: {
           images: { orderBy: { sortOrder: 'asc' } },
-          variants: true,
+          variants: {
+            include: {
+              branchInventories: true,
+            },
+          },
           specifications: true,
           category: true,
           brand: true,
@@ -403,10 +681,11 @@ export class ProductService {
       // 2. Add newly uploaded files
       if (files && files.length > 0) {
         const currentCount = await tx.productImage.count({ where: { productId: id } });
+        const uploadedUrls = await resolveUploadedFiles(files, 'products');
         await tx.productImage.createMany({
-          data: files.map((file, idx) => ({
+          data: uploadedUrls.map((url, idx) => ({
             productId: id,
-            url: `/uploads/products/${file.filename}`,
+            url,
             sortOrder: currentCount + idx,
           })),
         });
@@ -414,18 +693,60 @@ export class ProductService {
 
       // 3. Update variants if provided
       if (dto.variants !== undefined) {
-        await tx.productVariant.deleteMany({ where: { productId: id } });
-        if (dto.variants.length > 0) {
-          await tx.productVariant.createMany({
-            data: dto.variants.map((v, idx) => ({
+        const oldVariants = await tx.productVariant.findMany({
+          where: { productId: id },
+          select: { id: true },
+        });
+        const oldVariantIds = oldVariants.map((v) => v.id);
+
+        if (oldVariantIds.length > 0) {
+          await tx.branchInventory.deleteMany({
+            where: { productVariantId: { in: oldVariantIds } },
+          });
+          await tx.productVariant.deleteMany({
+            where: { id: { in: oldVariantIds } },
+          });
+        }
+
+        const defaultBranch = await tx.branch.findFirst();
+        const branchId = dto.branchId || defaultBranch?.id;
+
+        for (let idx = 0; idx < dto.variants.length; idx++) {
+          const v = dto.variants[idx];
+          const createdVariant = await tx.productVariant.create({
+            data: {
               productId: id,
               color: v.color || null,
               quality: v.quality || null,
               price: new Prisma.Decimal(v.price ?? dto.regularPrice ?? existing.regularPrice),
               stock: Number(v.stock) || 0,
               sku: v.sku?.trim() || `${slug.toUpperCase()}-V${idx + 1}`,
-            })),
+              buyingPrice: v.buyingPrice ? new Prisma.Decimal(v.buyingPrice) : null,
+              wholesalePrice: v.wholesalePrice ? new Prisma.Decimal(v.wholesalePrice) : null,
+              discountedPrice: v.discountedPrice ? new Prisma.Decimal(v.discountedPrice) : null,
+              offerPrice: v.offerPrice ? new Prisma.Decimal(v.offerPrice) : null,
+              attributes: v.attributes ? (typeof v.attributes === 'object' ? v.attributes : JSON.parse(v.attributes)) : null,
+            },
           });
+
+          if (branchId) {
+            await tx.branchInventory.upsert({
+              where: {
+                branchId_productVariantId: {
+                  branchId,
+                  productVariantId: createdVariant.id,
+                },
+              },
+              create: {
+                branchId,
+                productVariantId: createdVariant.id,
+                quantity: Number(v.stock) || 0,
+              },
+              update: {
+                quantity: Number(v.stock) || 0,
+              },
+            });
+          }
         }
       }
 
@@ -447,10 +768,22 @@ export class ProductService {
       const updateData: Prisma.ProductUpdateInput = {
         slug,
       };
+      if (dto.code !== undefined && dto.code.trim()) {
+        const uniqueCode = await this.generateUniqueCode(dto.code, id);
+        updateData.code = uniqueCode;
+      }
       if (dto.name !== undefined) updateData.name = dto.name;
+      if (dto.isNewest !== undefined) updateData.isNewest = dto.isNewest;
+      if (dto.isFeatured !== undefined) updateData.isFeatured = dto.isFeatured;
+      if (dto.isHomepage !== undefined) updateData.isHomepage = dto.isHomepage;
+      if (dto.isBestDeal !== undefined) updateData.isBestDeal = dto.isBestDeal;
       if (dto.shortDescription !== undefined) updateData.shortDescription = dto.shortDescription || null;
       if (dto.description !== undefined) updateData.description = dto.description || null;
-      if (dto.categoryId !== undefined) updateData.category = { connect: { id: dto.categoryId } };
+      if (dto.categoryId !== undefined) {
+        updateData.category = { connect: { id: dto.categoryId } };
+      } else if (dto.categoryIds && dto.categoryIds.length > 0) {
+        updateData.category = { connect: { id: dto.categoryIds[0] } };
+      }
       if (dto.brandId !== undefined) {
         updateData.brand = dto.brandId ? { connect: { id: dto.brandId } } : { disconnect: true };
       }
@@ -467,6 +800,27 @@ export class ProductService {
       if (dto.costPrice !== undefined) {
         updateData.costPrice = dto.costPrice ? new Prisma.Decimal(dto.costPrice) : null;
       }
+      if (dto.buyingPrice !== undefined) {
+        updateData.buyingPrice = dto.buyingPrice ? new Prisma.Decimal(dto.buyingPrice) : null;
+      }
+      if (dto.wholesalePrice !== undefined) {
+        updateData.wholesalePrice = dto.wholesalePrice ? new Prisma.Decimal(dto.wholesalePrice) : null;
+      }
+      if (dto.minOrderQty !== undefined) {
+        updateData.minOrderQty = Number(dto.minOrderQty);
+      }
+      if (dto.warranty !== undefined) {
+        updateData.warranty = dto.warranty || null;
+      }
+      if (dto.productType !== undefined) {
+        updateData.productType = dto.productType || null;
+      }
+      if (dto.condition !== undefined) {
+        updateData.condition = dto.condition || null;
+      }
+      if (dto.ogImageUrl !== undefined) {
+        updateData.ogImageUrl = dto.ogImageUrl || null;
+      }
       if (dto.status !== undefined) updateData.status = dto.status;
       if (dto.metaTitle !== undefined) updateData.metaTitle = dto.metaTitle || null;
       if (dto.metaDescription !== undefined) updateData.metaDescription = dto.metaDescription || null;
@@ -477,7 +831,11 @@ export class ProductService {
         data: updateData,
         include: {
           images: { orderBy: { sortOrder: 'asc' } },
-          variants: true,
+          variants: {
+            include: {
+              branchInventories: true,
+            },
+          },
           specifications: true,
           category: true,
           brand: true,
@@ -493,6 +851,7 @@ export class ProductService {
         orderItems: { take: 1 },
         purchaseOrderItems: { take: 1 },
         images: true,
+        variants: { select: { id: true } },
       },
     });
 
@@ -517,6 +876,13 @@ export class ProductService {
       }
     }
 
+    const variantIds = product.variants.map((v) => v.id);
+    if (variantIds.length > 0) {
+      await this.prisma.branchInventory.deleteMany({
+        where: { productVariantId: { in: variantIds } },
+      });
+    }
+
     return this.prisma.product.delete({
       where: { id },
     });
@@ -526,6 +892,8 @@ export class ProductService {
     search?: string;
     category?: string;
     branch?: string;
+    branchId?: string;
+    inStock?: string | boolean;
     limit?: number;
   }) {
     const limit = Math.max(1, Math.min(200, Number(query.limit) || 60));
@@ -547,9 +915,12 @@ export class ProductService {
       productWhere.AND = [
         {
           OR: [
+            { id: s },
             { name: { contains: s, mode: 'insensitive' } },
+            { code: { contains: s, mode: 'insensitive' } },
             { slug: { contains: s, mode: 'insensitive' } },
             { variants: { some: { sku: { contains: s, mode: 'insensitive' } } } },
+            { variants: { some: { id: s } } },
             { specifications: { some: { value: { contains: s, mode: 'insensitive' } } } },
           ],
         },
@@ -563,17 +934,63 @@ export class ProductService {
         images: { orderBy: { sortOrder: 'asc' } },
         category: { select: { id: true, name: true, slug: true } },
         brand: { select: { id: true, name: true } },
-        variants: true,
+        variants: {
+          include: {
+            branchInventories: true,
+            phoneUnits: {
+              where: { status: 'IN_STOCK' },
+              select: {
+                id: true,
+                imei1: true,
+                imei2: true,
+                serialNumber: true,
+                branchId: true,
+                status: true,
+                sellingPrice: true,
+                buyingPrice: true,
+                warrantyType: true,
+                warrantyPeriod: true,
+                createdAt: true,
+              },
+            },
+          },
+        },
       },
       orderBy: { updatedAt: 'desc' },
     });
 
-    // Flatten to list of variants
+    const targetBranch = (query.branchId || query.branch) && (query.branchId || query.branch) !== 'all'
+      ? (query.branchId || query.branch)
+      : null;
+
     const flatVariants: any[] = [];
 
     for (const product of products) {
+      const isPhone = product.productType?.toLowerCase() === 'phone';
+
       if (product.variants && product.variants.length > 0) {
         for (const variant of product.variants) {
+          let variantStock = Number(variant.stock || 0);
+          let availableUnits: any[] = [];
+
+          if (isPhone) {
+            availableUnits = targetBranch
+              ? (variant.phoneUnits?.filter((u: any) => u.branchId === targetBranch) || [])
+              : (variant.phoneUnits || []);
+            variantStock = availableUnits.length;
+          } else {
+            if (targetBranch) {
+              const bInv = variant.branchInventories?.find((b) => b.branchId === targetBranch);
+              variantStock = bInv ? Number(bInv.quantity) : 0;
+            } else if (variant.branchInventories && variant.branchInventories.length > 0) {
+              variantStock = variant.branchInventories.reduce((sum, b) => sum + Number(b.quantity), 0);
+            }
+          }
+
+          if ((query.inStock === true || query.inStock === 'true') && variantStock <= 0) {
+            continue;
+          }
+
           flatVariants.push({
             id: variant.id,
             productId: product.id,
@@ -583,22 +1000,51 @@ export class ProductService {
             color: variant.color || null,
             quality: variant.quality || null,
             sku: variant.sku,
-            stock: Number(variant.stock || 0),
+            stock: variantStock,
+            isPhone,
+            condition: product.condition || null,
+            productType: product.productType,
+            phoneUnits: availableUnits,
             price: Number(variant.price || product.salePrice || product.regularPrice),
             regularPrice: Number(product.regularPrice),
             salePrice: product.salePrice ? Number(product.salePrice) : null,
+            buyingPrice: variant.buyingPrice ? Number(variant.buyingPrice) : (product.buyingPrice ? Number(product.buyingPrice) : null),
+            wholesalePrice: variant.wholesalePrice ? Number(variant.wholesalePrice) : (product.wholesalePrice ? Number(product.wholesalePrice) : null),
+            offerPrice: variant.offerPrice ? Number(variant.offerPrice) : null,
             categoryName: product.category?.name || 'General',
             categoryId: product.categoryId,
             categorySlug: product.category?.slug || '',
             brandName: product.brand?.name || null,
-            allVariants: product.variants.map((v) => ({
-              id: v.id,
-              color: v.color,
-              quality: v.quality,
-              sku: v.sku,
-              stock: Number(v.stock || 0),
-              price: Number(v.price || product.salePrice || product.regularPrice),
-            })),
+            allVariants: product.variants.map((v) => {
+              let vStock = Number(v.stock || 0);
+              let vUnits: any[] = [];
+              if (isPhone) {
+                vUnits = targetBranch
+                  ? (v.phoneUnits?.filter((u: any) => u.branchId === targetBranch) || [])
+                  : (v.phoneUnits || []);
+                vStock = vUnits.length;
+              } else {
+                if (targetBranch) {
+                  const bInv = v.branchInventories?.find((b) => b.branchId === targetBranch);
+                  vStock = bInv ? Number(bInv.quantity) : 0;
+                } else if (v.branchInventories && v.branchInventories.length > 0) {
+                  vStock = v.branchInventories.reduce((sum, b) => sum + Number(b.quantity), 0);
+                }
+              }
+              return {
+                id: v.id,
+                color: v.color,
+                quality: v.quality,
+                sku: v.sku,
+                stock: vStock,
+                isPhone,
+                phoneUnits: vUnits,
+                price: Number(v.price || product.salePrice || product.regularPrice),
+                buyingPrice: v.buyingPrice ? Number(v.buyingPrice) : null,
+                wholesalePrice: v.wholesalePrice ? Number(v.wholesalePrice) : null,
+                offerPrice: v.offerPrice ? Number(v.offerPrice) : null,
+              };
+            }),
           });
         }
       } else {
@@ -611,7 +1057,7 @@ export class ProductService {
           color: null,
           quality: null,
           sku: product.slug.toUpperCase(),
-          stock: 99,
+          stock: 0,
           price: Number(product.salePrice || product.regularPrice),
           regularPrice: Number(product.regularPrice),
           salePrice: product.salePrice ? Number(product.salePrice) : null,
@@ -625,5 +1071,65 @@ export class ProductService {
     }
 
     return flatVariants;
+  }
+
+  async getCategoriesTree() {
+    const categories = await this.prisma.category.findMany({
+      where: { status: 'ACTIVE' },
+      orderBy: { name: 'asc' },
+    });
+
+    const categoryMap = new Map<string, any>();
+    categories.forEach((cat) => {
+      categoryMap.set(cat.id, { ...cat, children: [] });
+    });
+
+    const tree: any[] = [];
+    categories.forEach((cat) => {
+      const node = categoryMap.get(cat.id);
+      if (cat.parentId && categoryMap.has(cat.parentId)) {
+        categoryMap.get(cat.parentId).children.push(node);
+      } else {
+        tree.push(node);
+      }
+    });
+
+    return tree;
+  }
+
+  async getBrands() {
+    return this.prisma.brand.findMany({
+      where: { status: 'ACTIVE' },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async getSeries(brandId?: string) {
+    return this.prisma.series.findMany({
+      where: {
+        status: 'ACTIVE',
+        ...(brandId ? { brandId } : {}),
+      },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async getUnits() {
+    return this.prisma.unit.findMany({
+      where: { status: 'ACTIVE' },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async getAttributes() {
+    return this.prisma.attribute.findMany({
+      where: { status: 'ACTIVE' },
+      include: {
+        values: {
+          orderBy: { value: 'asc' },
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
   }
 }

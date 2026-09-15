@@ -14,13 +14,26 @@ import { apiGet, apiPost } from "@/lib/api-client";
 import { Wallet, Calendar, Banknote, Tag, FileText, CheckSquare, Square, Info, ShieldCheck } from "lucide-react";
 
 export interface PaymentSettlementDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  entityType: "customer" | "supplier";
-  entityId: string;
-  entityName: string;
-  totalDue: number;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  entityType?: "customer" | "supplier";
+  entityId?: string;
+  entityName?: string;
+  totalDue?: number;
+  allowSelectSupplier?: boolean;
+  contextLabels?: {
+    walletAccount?: string;
+    transactionDate?: string;
+    paymentAmount?: string;
+    extraDiscount?: string;
+    settlementNotes?: string;
+    title?: string;
+  };
   onPaymentSuccess?: () => void;
+  // Backward compatibility with customer-due page
+  customer?: any;
+  onClose?: () => void;
+  onSuccess?: () => void;
 }
 
 interface InvoiceItem {
@@ -32,14 +45,35 @@ interface InvoiceItem {
 }
 
 export function PaymentSettlementDialog({
-  open,
+  open: openProp,
   onOpenChange,
-  entityType,
-  entityId,
-  entityName,
-  totalDue,
+  entityType: entityTypeProp,
+  entityId: initialEntityId = "",
+  entityName: initialEntityName = "",
+  totalDue: initialTotalDue = 0,
+  allowSelectSupplier = false,
+  contextLabels,
   onPaymentSuccess,
+  customer,
+  onClose,
+  onSuccess,
 }: PaymentSettlementDialogProps) {
+  const entityType = entityTypeProp || (customer ? "customer" : "supplier");
+  const open = openProp !== undefined ? openProp : Boolean(customer);
+  const handleDialogChange = (nextOpen: boolean) => {
+    if (onOpenChange) onOpenChange(nextOpen);
+    if (!nextOpen && onClose) onClose();
+  };
+
+  const resolvedInitialEntityId = initialEntityId || customer?.id || customer?.customerId || "";
+  const resolvedInitialEntityName = initialEntityName || customer?.customerName || customer?.name || "";
+  const resolvedInitialTotalDue = initialTotalDue || Number(customer?.dueAmount || customer?.totalDue || 0);
+
+  const [currentEntityId, setCurrentEntityId] = useState(resolvedInitialEntityId);
+  const [currentEntityName, setCurrentEntityName] = useState(resolvedInitialEntityName);
+  const [currentTotalDue, setCurrentTotalDue] = useState(resolvedInitialTotalDue);
+  const [availableSuppliers, setAvailableSuppliers] = useState<any[]>([]);
+
   const [settlementMethod, setSettlementMethod] = useState<"quick" | "invoice">("quick");
   const [wallets, setWallets] = useState<any[]>([]);
   const [invoices, setInvoices] = useState<InvoiceItem[]>([]);
@@ -55,9 +89,12 @@ export function PaymentSettlementDialog({
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split("T")[0]);
   const [notes, setNotes] = useState("");
 
-  // Reset form when dialog opens
+  // Sync state when dialog opens or initial props change
   useEffect(() => {
     if (open) {
+      setCurrentEntityId(initialEntityId);
+      setCurrentEntityName(initialEntityName);
+      setCurrentTotalDue(initialTotalDue);
       setSettlementMethod("quick");
       setPayingAmount("");
       setExtraDiscount(0);
@@ -74,16 +111,47 @@ export function PaymentSettlementDialog({
           }
         })
         .catch(() => {});
+
+      // If supplier selection allowed or entityId empty for supplier
+      if ((allowSelectSupplier || !initialEntityId) && entityType === "supplier") {
+        apiGet<{ data: any[] }>("/suppliers", { limit: 100 })
+          .then((res) => {
+            if (res?.data && Array.isArray(res.data)) {
+              setAvailableSuppliers(res.data);
+              if (!initialEntityId && res.data.length > 0) {
+                const first = res.data[0];
+                setCurrentEntityId(first.id);
+                setCurrentEntityName(first.name);
+                setCurrentTotalDue(Number(first.totalDue || 0));
+              }
+            }
+          })
+          .catch(() => {});
+      }
     }
-  }, [open]);
+  }, [open, initialEntityId, initialEntityName, initialTotalDue, allowSelectSupplier, entityType]);
+
+  const handleSupplierSelect = (supplierId: string) => {
+    const sup = availableSuppliers.find((s) => s.id === supplierId);
+    if (sup) {
+      setCurrentEntityId(sup.id);
+      setCurrentEntityName(sup.name);
+      setCurrentTotalDue(Number(sup.totalDue || 0));
+      setPayingAmount("");
+      setSelectedInvoiceIds([]);
+    }
+  };
 
   // Fetch unpaid invoices for Invoice Wise mode
   useEffect(() => {
-    if (!open || !entityId) return;
+    if (!open || !currentEntityId) {
+      setInvoices([]);
+      return;
+    }
 
     setIsLoadingInvoices(true);
     if (entityType === "customer") {
-      apiGet<any[]>(`/reports/customer-due/${entityId}/unpaid-orders`)
+      apiGet<any[]>(`/reports/customer-due/${currentEntityId}/unpaid-orders`)
         .then((res) => {
           if (Array.isArray(res)) {
             const mapped = res.map((item: any) => ({
@@ -102,7 +170,7 @@ export function PaymentSettlementDialog({
         .finally(() => setIsLoadingInvoices(false));
     } else {
       // Supplier unpaid POs
-      apiGet<any>(`/suppliers/${entityId}`)
+      apiGet<any>(`/suppliers/${currentEntityId}`)
         .then((res) => {
           if (res?.purchaseOrders && Array.isArray(res.purchaseOrders)) {
             const unpaidPOs = res.purchaseOrders
@@ -122,7 +190,7 @@ export function PaymentSettlementDialog({
         })
         .finally(() => setIsLoadingInvoices(false));
     }
-  }, [open, entityId, entityType]);
+  }, [open, currentEntityId, entityType]);
 
   // Invoice selection logic
   const handleToggleInvoice = (invId: string) => {
@@ -156,13 +224,18 @@ export function PaymentSettlementDialog({
   };
 
   // Safe live calculations with explicit Number() casting
-  const numericTotalDue = Number(totalDue) || 0;
+  const numericTotalDue = Number(currentTotalDue) || 0;
   const numericPaying = Number(payingAmount) || 0;
   const numericDiscount = Number(extraDiscount) || 0;
   const numericRemainingUnpaid = Math.max(0, numericTotalDue - (numericPaying + numericDiscount));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!currentEntityId) {
+      toast.error("Please select a valid " + (entityType === "customer" ? "customer" : "supplier"));
+      return;
+    }
 
     if (numericPaying <= 0 && numericDiscount <= 0) {
       toast.error("Please enter a valid payment amount or discount");
@@ -184,7 +257,7 @@ export function PaymentSettlementDialog({
 
       if (entityType === "customer") {
         await apiPost("/reports/customer-due/payment", {
-          customerId: entityId,
+          customerId: currentEntityId,
           amount: numericPaying,
           extraDiscount: numericDiscount,
           walletTypeId,
@@ -193,10 +266,10 @@ export function PaymentSettlementDialog({
           notes: notes.trim() || undefined,
           orderIds: settlementMethod === "invoice" && selectedInvoiceIds.length > 0 ? selectedInvoiceIds : undefined,
         });
-        toast.success(`Payment of ৳${numericPaying.toLocaleString()} recorded for customer ${entityName}`);
+        toast.success(`Payment of ৳${numericPaying.toLocaleString()} recorded for customer ${currentEntityName}`);
       } else {
         await apiPost("/supplier-payments", {
-          supplierId: entityId,
+          supplierId: currentEntityId,
           amount: numericPaying,
           amountPaid: numericPaying,
           extraDiscount: numericDiscount,
@@ -207,11 +280,12 @@ export function PaymentSettlementDialog({
           note: notes.trim() || undefined,
           purchaseOrderIds: settlementMethod === "invoice" && selectedInvoiceIds.length > 0 ? selectedInvoiceIds : undefined,
         });
-        toast.success(`Payment of ৳${numericPaying.toLocaleString()} recorded for supplier ${entityName}`);
+        toast.success(`Payment of ৳${numericPaying.toLocaleString()} recorded for supplier ${currentEntityName}`);
       }
 
-      onOpenChange(false);
+      handleDialogChange(false);
       if (onPaymentSuccess) onPaymentSuccess();
+      if (onSuccess) onSuccess();
     } catch (err: any) {
       toast.error(err.message || "Failed to record payment");
     } finally {
@@ -220,17 +294,19 @@ export function PaymentSettlementDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleDialogChange}>
       <DialogContent className="sm:max-w-[620px] p-0 overflow-hidden rounded-2xl border border-slate-200">
         <DialogHeader className="px-6 pt-6 pb-3 border-b border-slate-100 bg-slate-50/50">
           <div className="flex items-center justify-between">
             <div>
               <DialogTitle className="text-lg font-bold text-slate-900">
-                {entityType === "customer" ? "Record Customer Payment" : "Make Supplier Payment"}
+                {contextLabels?.title || (entityType === "customer" ? "Record Customer Payment" : "Make Supplier Payment")}
               </DialogTitle>
-              <p className="text-xs text-slate-500 mt-0.5 font-medium">
-                {entityType === "customer" ? "Customer" : "Supplier"}: <span className="font-semibold text-slate-800">{entityName}</span>
-              </p>
+              {currentEntityName ? (
+                <p className="text-xs text-slate-500 mt-0.5 font-medium">
+                  {entityType === "customer" ? "Customer" : "Supplier"}: <span className="font-semibold text-slate-800">{currentEntityName}</span>
+                </p>
+              ) : null}
             </div>
             <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
               entityType === "customer" ? "bg-emerald-100 text-emerald-800" : "bg-blue-100 text-blue-800"
@@ -241,12 +317,34 @@ export function PaymentSettlementDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
+          {/* Top Supplier Selector if standalone/open selector */}
+          {(allowSelectSupplier || (!initialEntityId && entityType === "supplier")) && (
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1.5">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                SELECT SUPPLIER *
+              </label>
+              <select
+                value={currentEntityId}
+                onChange={(e) => handleSupplierSelect(e.target.value)}
+                className="w-full h-10 px-3 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                required
+              >
+                <option value="">Select Supplier...</option>
+                {availableSuppliers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.companyName || s.phone}) — Due: ৳{Number(s.totalDue || 0).toLocaleString()}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Top 3 Summary Cards Row */}
           <div className="grid grid-cols-3 gap-3">
             {/* Box 1: TOTAL UNPAID (Amber/Orange Tint) */}
             <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 text-center">
               <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider block">
-                TOTAL UNPAID
+                {entityType === "customer" ? "TOTAL UNPAID" : "TOTAL DUE"}
               </span>
               <p className="text-base sm:text-lg font-extrabold text-amber-900 mt-1">
                 ৳{numericTotalDue.toLocaleString()}
@@ -266,7 +364,7 @@ export function PaymentSettlementDialog({
             {/* Box 3: REMAINING UNPAID (Blue Tint) */}
             <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-3 text-center">
               <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider block">
-                REMAINING UNPAID
+                {entityType === "customer" ? "REMAINING UNPAID" : "REMAINING DUE"}
               </span>
               <p className="text-base sm:text-lg font-extrabold text-blue-900 mt-1">
                 ৳{numericRemainingUnpaid.toLocaleString()}
@@ -372,9 +470,9 @@ export function PaymentSettlementDialog({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Deposit Account / Wallet */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1 uppercase tracking-wide">
                 <Wallet className="w-3.5 h-3.5 text-emerald-600" />
-                {entityType === "customer" ? "Deposit Account *" : "Payment Wallet Account *"}
+                {contextLabels?.walletAccount || (entityType === "customer" ? "Deposit Account *" : "Payment Wallet Account *")}
               </label>
               <select
                 value={walletTypeId}
@@ -393,9 +491,9 @@ export function PaymentSettlementDialog({
 
             {/* Transaction Date */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1 uppercase tracking-wide">
                 <Calendar className="w-3.5 h-3.5 text-emerald-600" />
-                Transaction Date *
+                {contextLabels?.transactionDate || "Transaction Date *"}
               </label>
               <Input
                 type="date"
@@ -408,7 +506,7 @@ export function PaymentSettlementDialog({
 
             {/* Payment Method */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1 uppercase tracking-wide">
                 <Banknote className="w-3.5 h-3.5 text-emerald-600" />
                 Payment Method
               </label>
@@ -428,9 +526,9 @@ export function PaymentSettlementDialog({
 
             {/* Paying Amount */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1 uppercase tracking-wide">
                 <Banknote className="w-3.5 h-3.5 text-emerald-600" />
-                {entityType === "customer" ? "Collection Amount (৳) *" : "Payment Amount (৳) *"}
+                {contextLabels?.paymentAmount || (entityType === "customer" ? "Collection Amount (৳) *" : "Payment Amount (৳) *")}
               </label>
               <Input
                 type="number"
@@ -447,9 +545,9 @@ export function PaymentSettlementDialog({
 
           {/* Extra Discount Field */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+            <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1 uppercase tracking-wide">
               <Tag className="w-3.5 h-3.5 text-amber-600" />
-              Extra Goodwill Discount (৳) <span className="text-slate-400 font-normal">(Optional, reduces due without cash payment)</span>
+              {contextLabels?.extraDiscount || "Extra Goodwill Discount (৳)"} <span className="text-slate-400 font-normal lowercase">(Optional, reduces due without cash payment)</span>
             </label>
             <Input
               type="number"
@@ -463,9 +561,9 @@ export function PaymentSettlementDialog({
 
           {/* Settlement Notes */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1">
+            <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center gap-1 uppercase tracking-wide">
               <FileText className="w-3.5 h-3.5 text-slate-500" />
-              Settlement Notes
+              {contextLabels?.settlementNotes || "Settlement Notes"}
             </label>
             <Textarea
               placeholder="Add payment reference, cheque number, or transaction ID..."
@@ -479,7 +577,7 @@ export function PaymentSettlementDialog({
           <div className="pt-2 flex justify-end gap-2.5 border-t border-slate-100">
             <button
               type="button"
-              onClick={() => onOpenChange(false)}
+              onClick={() => handleDialogChange(false)}
               className="px-4 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium rounded-xl transition-colors text-xs"
             >
               Cancel

@@ -47,6 +47,7 @@ import {
 } from 'recharts';
 import Image from "next/image";
 import Link from "next/link";
+import { ColoredStatCard } from "@/components/admin/ColoredStatCard";
 
 interface DashboardData {
   kpi: {
@@ -58,6 +59,9 @@ interface DashboardData {
     totalPurchase: number;
     totalSupplierPayment: number;
     totalSupplierDue: number;
+    totalDueSales?: number;
+    totalExpense?: number;
+    payrollSalary?: number;
   };
   orderStatuses: {
     pending: number;
@@ -144,6 +148,9 @@ export default function AdminDashboardPage() {
     totalPurchase: 0,
     totalSupplierPayment: 0,
     totalSupplierDue: 0,
+    totalDueSales: 0,
+    totalExpense: 0,
+    payrollSalary: 0,
   };
 
   const orderStatuses = [
@@ -332,6 +339,34 @@ export default function AdminDashboardPage() {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* ROW 3: FIX PASS 20 SUMMARY BOXES */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <ColoredStatCard
+          icon={<AlertCircle className="w-5 h-5" />}
+          label="Total Due Sales"
+          value={`৳ ${(kpi.totalDueSales ?? 0).toLocaleString()}`}
+          colorTint="orange"
+        />
+        <ColoredStatCard
+          icon={<HandCoins className="w-5 h-5" />}
+          label="Total Supplier Payment"
+          value={`৳ ${(kpi.totalSupplierPayment ?? 0).toLocaleString()}`}
+          colorTint="teal"
+        />
+        <ColoredStatCard
+          icon={<Receipt className="w-5 h-5" />}
+          label="Total Expense"
+          value={`৳ ${(kpi.totalExpense ?? 0).toLocaleString()}`}
+          colorTint="red"
+        />
+        <ColoredStatCard
+          icon={<Banknote className="w-5 h-5" />}
+          label="Payroll + Salary"
+          value={`৳ ${(kpi.payrollSalary ?? 0).toLocaleString()}`}
+          colorTint="purple"
+        />
       </div>
 
       {/* ORDER STATUS OVERVIEW */}

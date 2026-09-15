@@ -22,7 +22,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AdminSidebar } from "./AdminSidebar";
 import { useAdminPage } from "@/contexts/AdminPageContext";
-import { useAuth } from "@/context/AuthContext";
+import { useStaffAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
@@ -47,7 +47,7 @@ export function AdminTopbar() {
     selectBranch,
     branches,
   } = useAdminPage();
-  const { user, logout } = useAuth();
+  const { user, logout } = useStaffAuth();
   const router = useRouter();
   const [activeTheme, setActiveTheme] = useState("Emerald");
 

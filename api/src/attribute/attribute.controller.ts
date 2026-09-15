@@ -10,6 +10,7 @@ import {
 import { AttributeService } from './attribute.service';
 import { CreateAttributeDto } from './dto/create-attribute.dto';
 import { UpdateAttributeDto } from './dto/update-attribute.dto';
+import { CreateAttributeValueDto, UpdateAttributeValueDto } from './dto/attribute-value.dto';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { ModuleName, PermissionAction } from '@prisma/client';
@@ -46,5 +47,40 @@ export class AttributeController {
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.attributeService.remove(id);
+  }
+
+  // =========================================================================
+  // Granular Attribute Values Endpoints
+  // =========================================================================
+
+  @RequirePermission({ module: ModuleName.PRODUCTS, action: PermissionAction.READ })
+  @Get(':id/values')
+  findValues(@Param('id') id: string) {
+    return this.attributeService.findValues(id);
+  }
+
+  @RequirePermission({ module: ModuleName.PRODUCTS, action: PermissionAction.CREATE })
+  @Post(':id/values')
+  createValue(@Param('id') id: string, @Body() dto: CreateAttributeValueDto) {
+    return this.attributeService.createValue(id, dto);
+  }
+
+  @RequirePermission({ module: ModuleName.PRODUCTS, action: PermissionAction.UPDATE })
+  @Patch(':attrId/values/:valueId')
+  updateValue(
+    @Param('attrId') attrId: string,
+    @Param('valueId') valueId: string,
+    @Body() dto: UpdateAttributeValueDto,
+  ) {
+    return this.attributeService.updateValue(attrId, valueId, dto);
+  }
+
+  @RequirePermission({ module: ModuleName.PRODUCTS, action: PermissionAction.DELETE })
+  @Delete(':attrId/values/:valueId')
+  removeValue(
+    @Param('attrId') attrId: string,
+    @Param('valueId') valueId: string,
+  ) {
+    return this.attributeService.removeValue(attrId, valueId);
   }
 }

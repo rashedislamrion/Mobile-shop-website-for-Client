@@ -36,6 +36,7 @@ export class SupplierService {
       const term = query.search.trim();
       where.OR = [
         { name: { contains: term, mode: 'insensitive' } },
+        { companyName: { contains: term, mode: 'insensitive' } },
         { contactPerson: { contains: term, mode: 'insensitive' } },
         { phone: { contains: term, mode: 'insensitive' } },
         { email: { contains: term, mode: 'insensitive' } },
@@ -47,6 +48,9 @@ export class SupplierService {
       this.prisma.supplier.findMany({
         where,
         include: {
+          purchaseOrders: {
+            select: { grandTotal: true },
+          },
           _count: {
             select: { purchaseOrders: true, payments: true },
           },
@@ -57,8 +61,20 @@ export class SupplierService {
       }),
     ]);
 
+    const mapped = data.map((supplier) => {
+      const totalSpent = (supplier.purchaseOrders || []).reduce(
+        (sum, po) => sum + Number(po.grandTotal || 0),
+        0,
+      );
+      const { purchaseOrders, ...rest } = supplier;
+      return {
+        ...rest,
+        totalSpent,
+      };
+    });
+
     return {
-      data,
+      data: mapped,
       meta: {
         total,
         page,
@@ -105,13 +121,16 @@ export class SupplierService {
     return this.prisma.supplier.create({
       data: {
         name: dto.name,
+        companyName: dto.companyName || null,
         logo: dto.logo || null,
-        contactPerson: dto.contactPerson,
+        contactPerson: dto.contactPerson || dto.name,
         phone: dto.phone,
         email: dto.email || null,
         address: dto.address,
+        productsCategory: dto.productsCategory || null,
         productsSupplied: dto.productsSupplied || [],
         paymentTerms: dto.paymentTerms || 'COD',
+        advanceBalance: dto.advanceBalance || 0,
         totalDue: dto.totalDue || 0,
         status: dto.status || StaffStatus.ACTIVE,
       },
@@ -125,13 +144,16 @@ export class SupplierService {
       where: { id },
       data: {
         name: dto.name,
+        companyName: dto.companyName !== undefined ? dto.companyName || null : undefined,
         logo: dto.logo !== undefined ? dto.logo || null : undefined,
         contactPerson: dto.contactPerson,
         phone: dto.phone,
         email: dto.email !== undefined ? dto.email || null : undefined,
         address: dto.address,
+        productsCategory: dto.productsCategory !== undefined ? dto.productsCategory || null : undefined,
         productsSupplied: dto.productsSupplied,
         paymentTerms: dto.paymentTerms,
+        advanceBalance: dto.advanceBalance !== undefined ? dto.advanceBalance : undefined,
         status: dto.status,
       },
     });

@@ -4,8 +4,16 @@ import * as fs from 'fs';
 import * as crypto from 'crypto';
 import { BadRequestException } from '@nestjs/common';
 import { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
+import { storageService } from './storage.service';
 
-const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
+const ALLOWED_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/svg+xml',
+  'application/pdf',
+];
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
 export function getUploadRoot(): string {
@@ -37,7 +45,7 @@ export function createMulterConfig(subfolder: string): MulterOptions {
       if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
         return callback(
           new BadRequestException(
-            `Invalid file type: ${file.mimetype}. Allowed types: jpg, jpeg, png, webp, gif, svg`,
+            `Invalid file type: ${file.mimetype}. Allowed types: jpg, jpeg, png, webp, gif, svg, pdf`,
           ),
           false,
         );
@@ -48,4 +56,26 @@ export function createMulterConfig(subfolder: string): MulterOptions {
       fileSize: MAX_FILE_SIZE,
     },
   };
+}
+
+/**
+ * Resolves an uploaded file to its storage URL (Cloudflare R2 public URL or local disk URL)
+ */
+export async function resolveUploadedFile(
+  file: Express.Multer.File | undefined | null,
+  subfolder: string,
+): Promise<string | null> {
+  if (!file) return null;
+  return storageService.uploadFile(file, subfolder);
+}
+
+/**
+ * Resolves multiple uploaded files to storage URLs
+ */
+export async function resolveUploadedFiles(
+  files: Express.Multer.File[] | undefined | null,
+  subfolder: string,
+): Promise<string[]> {
+  if (!files || files.length === 0) return [];
+  return storageService.uploadFiles(files, subfolder);
 }

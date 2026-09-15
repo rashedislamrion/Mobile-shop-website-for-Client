@@ -87,6 +87,7 @@ export class SupportTicketService {
     issueTypeId?: string;
     assignedToId?: string;
     search?: string;
+    sortBy?: string;
     page?: number;
     limit?: number;
   }) {
@@ -98,6 +99,21 @@ export class SupportTicketService {
     if (query?.status) where.status = query.status;
     if (query?.issueTypeId) where.issueTypeId = query.issueTypeId;
     if (query?.assignedToId) where.assignedToId = query.assignedToId;
+
+    let orderBy: Prisma.SupportTicketOrderByWithRelationInput = { createdAt: 'desc' };
+
+    if (query?.sortBy) {
+      const s = query.sortBy.toLowerCase();
+      if (s === 'newest') {
+        orderBy = { createdAt: 'desc' };
+      } else if (s === 'oldest') {
+        orderBy = { createdAt: 'asc' };
+      } else if (s === 'pending') {
+        where.status = TicketStatus.RUNNING;
+      } else if (s === 'completed') {
+        where.status = TicketStatus.COMPLETED;
+      }
+    }
 
     if (query?.search?.trim()) {
       const term = query.search.trim();
@@ -115,6 +131,7 @@ export class SupportTicketService {
         where,
         include: {
           issueType: true,
+          order: { select: { id: true, orderCode: true } },
           customer: { select: { id: true, name: true, email: true, phone: true } },
           assignedTo: { select: { id: true, name: true, employeeId: true } },
           messages: {
@@ -122,14 +139,29 @@ export class SupportTicketService {
             orderBy: { createdAt: 'desc' },
           },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip,
         take: limit,
       }),
     ]);
 
+    const mapped = data.map((t) => {
+      let statusLabel = 'Confirm';
+      if (t.status === TicketStatus.COMPLETED) statusLabel = 'Completed';
+      else if (t.status === TicketStatus.CANCELLED) statusLabel = 'Cancelled';
+      else if (t.status === TicketStatus.RUNNING) statusLabel = 'Confirm';
+
+      const orderNumber = t.order?.orderCode || t.orderId || '-';
+
+      return {
+        ...t,
+        orderNumber,
+        statusLabel,
+      };
+    });
+
     return {
-      data,
+      data: mapped,
       meta: {
         total,
         page,

@@ -1,207 +1,193 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import { DataTable } from "@/components/admin/DataTable";
+import { FilterBar } from "@/components/admin/FilterBar";
+import { FilterConfig } from "@/types/table";
+import { ColumnDef } from "@tanstack/react-table";
+import { toast } from "sonner";
 import { apiGet } from "@/lib/api-client";
-import { Skeleton } from "@/components/ui/skeleton";
+import { getWalletIconComponent } from "@/components/admin/WalletIconHelper";
 
-interface ExpenseCategoryItem {
-  id: string;
-  name: string;
-  thisMonthSpend: number;
-}
-
-interface ExpenseItem {
+interface ExpenseHistoryRecord {
   id: string;
   referenceNo: string;
   amount: number | string;
   description: string;
   date: string;
   status: string;
-  category?: { id: string; name: string };
   branch?: { id: string; name: string } | null;
-  walletType?: { id: string; name: string } | null;
+  category?: { id: string; name: string } | null;
+  walletType?: { id: string; name: string; kind: string; icon?: string } | null;
 }
-
-const COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#6366f1'];
 
 export default function ExpenseHistoryPage() {
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
-  const [categories, setCategories] = useState<ExpenseCategoryItem[]>([]);
-  const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
-  const [selectedCategoryName, setSelectedCategoryName] = useState<string | null>(null);
+  const [data, setData] = useState<ExpenseHistoryRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filters, setFilters] = useState<Record<string, unknown>>({});
+
+  const [categories, setCategories] = useState<any[]>([]);
+  const [branches, setBranches] = useState<any[]>([]);
 
   useEffect(() => {
     setTitle("Expense History");
     setBadge("Accounting");
-    setDateFilter(""); 
+    setDateFilter("");
   }, [setTitle, setBadge, setDateFilter]);
 
   useEffect(() => {
-    setIsLoading(true);
     Promise.all([
-      apiGet<ExpenseCategoryItem[]>("/expense-categories"),
-      apiGet<{ data: ExpenseItem[] }>("/expenses", { status: "PAID", limit: 100 }),
+      apiGet<any[]>("/expense-categories"),
+      apiGet<{ data: any[] }>("/branches").catch(() => null),
     ])
-      .then(([catRes, expRes]) => {
+      .then(([catRes, branchRes]) => {
         if (Array.isArray(catRes)) setCategories(catRes);
-        if (expRes?.data) setExpenses(expRes.data);
+        if (branchRes?.data && Array.isArray(branchRes.data)) setBranches(branchRes.data);
       })
-      .catch(() => {})
-      .finally(() => setIsLoading(false));
+      .catch(() => {});
   }, []);
 
-  const categoryTotals = categories
-    .map((cat) => ({
-      name: cat.name,
-      value: Number(cat.thisMonthSpend || 0),
-    }))
-    .filter((c) => c.value > 0);
+  const loadData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const params: Record<string, any> = {
+        limit: 100,
+      };
 
-  const filteredExpenses = selectedCategoryName
-    ? expenses.filter((e) => e.category?.name === selectedCategoryName)
-    : expenses;
+      if (filters.category) params.category = filters.category;
+      if (filters.branch) params.branch = filters.branch;
+      if (filters.dateFrom) params.dateFrom = filters.dateFrom;
+      if (filters.dateTo) params.dateTo = filters.dateTo;
+      if (searchQuery.trim()) params.search = searchQuery.trim();
 
-  const totalExpense = filteredExpenses.reduce((sum, e) => sum + Number(e.amount), 0);
+      const res = await apiGet<{ data: ExpenseHistoryRecord[] }>("/expenses", params);
+      setData(res?.data || []);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load expense history");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [filters, searchQuery]);
 
-  if (isLoading) {
-    return (
-      <div className="flex gap-6 items-start">
-        <div className="w-1/3 space-y-6">
-          <Skeleton className="h-64 w-full rounded-2xl" />
-          <Skeleton className="h-64 w-full rounded-2xl" />
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const filterConfigs: FilterConfig[] = useMemo(() => [
+    {
+      type: "select",
+      label: "All Branches",
+      key: "branch",
+      options: branches.map((b) => ({ label: b.name, value: b.id })),
+    },
+    {
+      type: "select",
+      label: "All Categories",
+      key: "category",
+      options: categories.map((c) => ({ label: c.name, value: c.id })),
+    },
+    {
+      type: "dateRange",
+      label: "Select Date Range",
+      key: "dateRange",
+    },
+  ], [branches, categories]);
+
+  const columns: ColumnDef<ExpenseHistoryRecord>[] = [
+    {
+      accessorKey: "date",
+      header: "DATE",
+      cell: ({ row }) => {
+        const d = new Date(row.original.date);
+        return (
+          <span className="text-slate-700 whitespace-nowrap text-xs font-medium">
+            {d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+          </span>
+        );
+      },
+    },
+    {
+      accessorKey: "branch",
+      header: "BRANCH",
+      cell: ({ row }) => (
+        <span className="text-slate-700 text-xs font-medium">
+          {row.original.branch?.name || "--"}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "category",
+      header: "CATEGORY",
+      cell: ({ row }) => (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-slate-100 text-slate-700">
+          {row.original.category?.name || "General Expense"}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "walletType",
+      header: "WALLET",
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
+            {getWalletIconComponent(row.original.walletType?.icon, row.original.walletType?.kind, "w-3.5 h-3.5")}
+          </div>
+          <div>
+            <p className="font-bold text-slate-800 text-xs leading-tight">
+              {row.original.walletType?.name || "Direct Cash"}
+            </p>
+            <span className="text-[10px] font-semibold text-slate-400 uppercase">
+              {row.original.walletType?.kind?.replace("_", " ") || "CASH"}
+            </span>
+          </div>
         </div>
-        <div className="w-2/3">
-          <Skeleton className="h-96 w-full rounded-2xl" />
-        </div>
-      </div>
-    );
-  }
+      ),
+    },
+    {
+      accessorKey: "amount",
+      header: "AMOUNT",
+      cell: ({ row }) => (
+        <span className="font-bold text-xs text-rose-600 whitespace-nowrap">
+          -৳{Number(row.original.amount).toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "description",
+      header: "NOTE",
+      cell: ({ row }) => (
+        <span className="text-xs text-slate-500 max-w-xs truncate block">
+          {row.original.description || row.original.referenceNo || "--"}
+        </span>
+      ),
+    },
+  ];
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 items-start">
-      
-      {/* LEFT COLUMN: Categories & Chart */}
-      <div className="w-full lg:w-1/3 space-y-6">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-800 mb-4">Expense Categories</h3>
-          
-          <div className="space-y-1">
-            <button
-              onClick={() => setSelectedCategoryName(null)}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
-                selectedCategoryName === null ? "bg-emerald-50 text-emerald-700 font-semibold" : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              <span>All Categories</span>
-              <span className="text-xs bg-slate-100 px-2 py-0.5 rounded-full text-slate-600">{expenses.length}</span>
-            </button>
-            
-            {categories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => setSelectedCategoryName(cat.name)}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors ${
-                  selectedCategoryName === cat.name ? "bg-emerald-50 text-emerald-700 font-semibold" : "text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                <span>{cat.name}</span>
-                <span className={`px-2 py-0.5 rounded-full text-xs border ${
-                  selectedCategoryName === cat.name ? "border-emerald-200 bg-white text-emerald-700 font-bold" : "border-slate-200 bg-slate-50 text-slate-600"
-                }`}>
-                  ৳{Number(cat.thisMonthSpend || 0).toLocaleString()}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-800 mb-4">Live Expense Distribution</h3>
-          <div className="h-[250px]">
-            {categoryTotals.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-xs text-slate-400">
-                No expense distribution recorded yet
-              </div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={categoryTotals}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={80}
-                    paddingAngle={5}
-                    dataKey="value"
-                  >
-                    {categoryTotals.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip 
-                    formatter={(value: number) => `৳${Number(value).toLocaleString()}`}
-                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
-          </div>
+    <div className="space-y-6">
+      <div className="flex justify-between items-center bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">Expense History</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Comprehensive journal of recorded operational disbursements</p>
         </div>
       </div>
 
-      {/* RIGHT COLUMN: Expense Details list */}
-      <div className="w-full lg:w-2/3 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-        <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
-          <div>
-            <h3 className="font-semibold text-slate-800 text-lg">
-              {selectedCategoryName ? `${selectedCategoryName} Disbursements` : "All Paid Expenses"}
-            </h3>
-            <p className="text-xs text-slate-400">Historical records of completed settlements</p>
-          </div>
-          <div className="text-right">
-            <p className="text-xs text-slate-400 uppercase font-semibold">Total Filtered Spend</p>
-            <p className="text-2xl font-bold text-rose-600">৳{totalExpense.toLocaleString()}</p>
-          </div>
-        </div>
+      {/* 4 Filters: search, branch, category, date range */}
+      <FilterBar
+        searchPlaceholder="Search by description or reference..."
+        filters={filterConfigs}
+        onSearchChange={(val) => setSearchQuery(val)}
+        onFilterChange={(key, val) => setFilters((prev) => ({ ...prev, [key]: val }))}
+        onReset={() => {
+          setSearchQuery("");
+          setFilters({});
+        }}
+      />
 
-        <div className="space-y-3">
-          {filteredExpenses.length === 0 ? (
-            <div className="py-12 text-center text-slate-400 bg-slate-50 rounded-xl text-sm">
-              No paid expenses found for this selection.
-            </div>
-          ) : (
-            filteredExpenses.map((expense) => (
-              <div key={expense.id} className="flex justify-between items-start p-4 border border-slate-100 rounded-xl hover:border-emerald-200 hover:bg-emerald-50/20 transition-colors">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-semibold text-slate-800 text-sm">{expense.description}</span>
-                    <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                      {expense.referenceNo}
-                    </span>
-                  </div>
-                  <div className="text-xs text-slate-500 flex items-center gap-2">
-                    <span>{new Date(expense.date).toLocaleDateString("en-GB")}</span>
-                    <span>•</span>
-                    <span>{expense.branch?.name || "Headquarters"}</span>
-                    <span>•</span>
-                    <span>Paid via: <strong className="text-slate-700">{expense.walletType?.name || "Direct Cash"}</strong></span>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="font-bold text-slate-800 text-base">৳{Number(expense.amount).toLocaleString()}</div>
-                  <div className="text-xs font-semibold text-emerald-600 mt-0.5">
-                    PAID
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-
+      <DataTable columns={columns} data={data} pageSize={10} />
     </div>
   );
 }

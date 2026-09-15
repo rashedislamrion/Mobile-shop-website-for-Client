@@ -1,46 +1,39 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useAdminPage } from "@/contexts/AdminPageContext";
-import { DataTable, StatusBadge } from "@/components/admin/DataTable";
+import { DataTable } from "@/components/admin/DataTable";
 import { ColumnDef } from "@tanstack/react-table";
-import { Plus, Trash2, Image as ImageIcon, Loader2 } from "lucide-react";
+import { Plus, Image as ImageIcon, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { apiGet, apiPost, apiPatch, apiDelete, getImageUrl } from "@/lib/api-client";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
+import { apiGet, apiPatch, apiDelete, getImageUrl } from "@/lib/api-client";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export interface AdRecord {
   id: string;
   title: string;
-  placement: "HOME_BANNER" | "HOME_SIDEBAR" | "PRODUCT_PAGE" | "POPUP";
   imageUrl: string;
+  mobileThumbnailUrl?: string | null;
+  isFeatured: boolean;
+  status: "ACTIVE" | "INACTIVE";
+  placement?: string;
   linkUrl?: string | null;
-  startDate?: string | null;
-  endDate?: string | null;
-  impressions: number;
-  clicks: number;
-  status: "ACTIVE" | "INACTIVE" | "SCHEDULED" | "EXPIRED";
+  createdAt: string;
 }
 
 export default function AdsPage() {
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
   const [data, setData] = useState<AdRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const [newAd, setNewAd] = useState({
-    title: "",
-    placement: "HOME_SIDEBAR" as "HOME_BANNER" | "HOME_SIDEBAR" | "PRODUCT_PAGE" | "POPUP",
-    imageUrl: "",
-    linkUrl: "",
-    startDate: "",
-    endDate: "",
-    status: "ACTIVE" as "ACTIVE" | "INACTIVE",
-  });
+  const [editingAd, setEditingAd] = useState<AdRecord | null>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   const fetchAds = async () => {
     setIsLoading(true);
@@ -63,6 +56,17 @@ export default function AdsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const handleToggleStatus = async (id: string, currentStatus: "ACTIVE" | "INACTIVE") => {
+    const nextStatus = currentStatus === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+    try {
+      await apiPatch(`/ads/${id}`, { status: nextStatus });
+      toast.success(`Ad is now ${nextStatus.toLowerCase()}`);
+      setData((prev) => prev.map((a) => (a.id === id ? { ...a, status: nextStatus } : a)));
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update ad status");
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this ad?")) return;
     try {
@@ -74,62 +78,36 @@ export default function AdsPage() {
     }
   };
 
-  const handleToggleStatus = async (ad: AdRecord) => {
-    const nextStatus = ad.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+  const handleSaveEdit = async () => {
+    if (!editingAd) return;
+    setIsUpdating(true);
     try {
-      await apiPatch(`/ads/${ad.id}`, { status: nextStatus });
-      toast.success(`Ad is now ${nextStatus.toLowerCase()}`);
-      setData(data.map((a) => (a.id === ad.id ? { ...a, status: nextStatus } : a)));
-    } catch (err: any) {
-      toast.error(err.message || "Failed to update ad status");
-    }
-  };
-
-  const handleAddAd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newAd.title.trim() || !newAd.imageUrl.trim()) {
-      toast.error("Please enter a title and image URL.");
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      await apiPost("/ads", {
-        title: newAd.title.trim(),
-        placement: newAd.placement,
-        imageUrl: newAd.imageUrl.trim(),
-        linkUrl: newAd.linkUrl.trim() || undefined,
-        startDate: newAd.startDate ? new Date(newAd.startDate).toISOString() : undefined,
-        endDate: newAd.endDate ? new Date(newAd.endDate).toISOString() : undefined,
-        status: newAd.status,
+      await apiPatch(`/ads/${editingAd.id}`, {
+        title: editingAd.title,
+        isFeatured: editingAd.isFeatured,
       });
-      toast.success("Ad campaign created successfully!");
-      setIsAddDialogOpen(false);
-      setNewAd({
-        title: "",
-        placement: "HOME_SIDEBAR",
-        imageUrl: "",
-        linkUrl: "",
-        startDate: "",
-        endDate: "",
-        status: "ACTIVE",
-      });
+      toast.success("Ad updated successfully");
+      setIsEditDialogOpen(false);
       fetchAds();
     } catch (err: any) {
-      toast.error(err.message || "Failed to create ad");
+      toast.error(err.message || "Failed to update ad");
     } finally {
-      setIsSubmitting(false);
+      setIsUpdating(false);
     }
   };
 
   const columns: ColumnDef<AdRecord>[] = [
     {
       accessorKey: "imageUrl",
-      header: "Thumbnail",
+      header: "THUMBNAIL",
       cell: ({ row }) => (
         <div className="w-16 h-10 rounded overflow-hidden relative border border-slate-200 bg-slate-50 flex items-center justify-center">
           {row.original.imageUrl ? (
-            <img src={getImageUrl(row.original.imageUrl)} alt={row.original.title} className="w-full h-full object-cover" />
+            <img
+              src={getImageUrl(row.original.imageUrl)}
+              alt={row.original.title}
+              className="w-full h-full object-cover"
+            />
           ) : (
             <ImageIcon className="w-4 h-4 text-slate-400" />
           )}
@@ -137,70 +115,72 @@ export default function AdsPage() {
       ),
     },
     {
-      accessorKey: "title",
-      header: "Title",
-      cell: ({ row }) => <span className="font-bold text-slate-800">{row.original.title}</span>,
-    },
-    {
-      accessorKey: "placement",
-      header: "Placement",
-      cell: ({ row }) => (
-        <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs font-medium">
-          {row.original.placement}
-        </span>
-      ),
-    },
-    {
-      accessorKey: "linkUrl",
-      header: "Link URL",
-      cell: ({ row }) => <span className="text-slate-500 truncate max-w-[150px] block text-xs">{row.original.linkUrl || "—"}</span>,
-    },
-    {
-      accessorKey: "impressions",
-      header: "Impressions",
-      cell: ({ row }) => <span className="text-slate-700 text-xs font-semibold">{row.original.impressions.toLocaleString()}</span>,
-    },
-    {
-      accessorKey: "clicks",
-      header: "Clicks",
-      cell: ({ row }) => <span className="text-slate-700 text-xs font-semibold">{row.original.clicks.toLocaleString()}</span>,
-    },
-    {
-      id: "ctr",
-      header: "CTR",
+      accessorKey: "mobileThumbnailUrl",
+      header: "MOBILE THUMBNAIL",
       cell: ({ row }) => {
-        const { impressions, clicks } = row.original;
-        const ctr = impressions > 0 ? ((clicks / impressions) * 100).toFixed(2) : "0.00";
-        return <span className="text-xs font-bold text-emerald-600">{ctr}%</span>;
+        const url = row.original.mobileThumbnailUrl;
+        if (!url) return <span className="text-slate-400 font-medium">-</span>;
+        return (
+          <div className="w-10 h-10 rounded overflow-hidden relative border border-slate-200 bg-slate-50 flex items-center justify-center">
+            <img src={getImageUrl(url)} alt="Mobile ad" className="w-full h-full object-cover" />
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: "title",
+      header: "TITLE",
+      cell: ({ row }) => <span className="font-semibold text-slate-800">{row.original.title}</span>,
+    },
+    {
+      accessorKey: "isFeatured",
+      header: "IS FEATURED",
+      cell: ({ row }) => {
+        const isF = row.original.isFeatured;
+        return isF ? (
+          <Badge className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50 border-emerald-200 text-xs font-semibold">
+            Yes
+          </Badge>
+        ) : (
+          <Badge className="bg-rose-50 text-rose-700 hover:bg-rose-50 border-rose-200 text-xs font-semibold">
+            No
+          </Badge>
+        );
       },
     },
     {
       accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => {
-        const s = row.original.status;
-        const type = s === "ACTIVE" ? "success" : s === "SCHEDULED" ? "info" : s === "EXPIRED" ? "neutral" : "warning";
-        return <StatusBadge status={s} type={type as any} />;
-      },
+      header: "STATUS",
+      cell: ({ row }) => (
+        <Switch
+          checked={row.original.status === "ACTIVE"}
+          onCheckedChange={() => handleToggleStatus(row.original.id, row.original.status)}
+        />
+      ),
     },
     {
-      id: "actions",
-      header: "Actions",
+      id: "action",
+      header: "ACTION",
       cell: ({ row }) => (
-        <div className="flex items-center gap-1.5 justify-end">
+        <div className="flex items-center gap-1">
           <Button
             variant="ghost"
-            size="sm"
-            onClick={() => handleToggleStatus(row.original)}
-            className="text-xs text-slate-600"
+            size="icon"
+            onClick={() => {
+              setEditingAd(row.original);
+              setIsEditDialogOpen(true);
+            }}
+            className="h-8 w-8 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+            title="Edit Ad"
           >
-            {row.original.status === "ACTIVE" ? "Pause" : "Activate"}
+            <Pencil className="w-4 h-4" />
           </Button>
           <Button
             variant="ghost"
             size="icon"
             onClick={() => handleDelete(row.original.id)}
-            className="text-slate-400 hover:text-danger"
+            className="h-8 w-8 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+            title="Delete Ad"
           >
             <Trash2 className="w-4 h-4" />
           </Button>
@@ -213,72 +193,65 @@ export default function AdsPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center bg-white p-4 rounded-xl border shadow-sm">
         <div>
-          <h2 className="text-base font-bold text-slate-800">Advertisement Campaigns</h2>
-          <p className="text-xs text-slate-500">Track and manage on-site promotional banners and sidebar ads</p>
+          <h2 className="text-base font-bold text-slate-800">
+            Ads List <span className="text-xs font-normal text-slate-500">(max 2 ads show in home page)</span>
+          </h2>
+          <p className="text-xs text-slate-500">Manage your promotional advertisement campaigns</p>
         </div>
-        <Button onClick={() => setIsAddDialogOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs">
-          <Plus className="w-4 h-4 mr-1.5" /> Create New Ad
-        </Button>
+        <Link href="/admin/marketing/ads/create">
+          <Button className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-9">
+            <Plus className="w-4 h-4 mr-1.5" /> + Create New
+          </Button>
+        </Link>
       </div>
 
-      <div className="bg-white border rounded-xl shadow-sm">
+      <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
         <DataTable columns={columns} data={data} isLoading={isLoading} />
       </div>
 
-      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+      {/* Optional Edit Modal for quick title/featured updates */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Create New Ad Campaign</DialogTitle>
+            <DialogTitle>Edit Ad</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleAddAd} className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Campaign Title *</label>
-              <Input
-                placeholder="e.g. Winter Battery Replacement Promo"
-                value={newAd.title}
-                onChange={(e) => setNewAd({ ...newAd, title: e.target.value })}
-                required
-              />
-            </div>
+          {editingAd && (
+            <div className="space-y-4 py-2">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">Title</label>
+                <Input
+                  value={editingAd.title}
+                  onChange={(e) => setEditingAd({ ...editingAd, title: e.target.value })}
+                />
+              </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Ad Placement *</label>
-              <Select value={newAd.placement} onValueChange={(val: any) => setNewAd({ ...newAd, placement: val })}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="HOME_BANNER">Home Banner</SelectItem>
-                  <SelectItem value="HOME_SIDEBAR">Home Sidebar</SelectItem>
-                  <SelectItem value="PRODUCT_PAGE">Product Detail Page</SelectItem>
-                  <SelectItem value="POPUP">Popup Modal</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+              <div className="flex items-center space-x-2 pt-2">
+                <Checkbox
+                  id="edit-isFeatured"
+                  checked={editingAd.isFeatured}
+                  onCheckedChange={(checked) =>
+                    setEditingAd({ ...editingAd, isFeatured: Boolean(checked) })
+                  }
+                />
+                <label htmlFor="edit-isFeatured" className="text-xs font-semibold text-slate-700 cursor-pointer">
+                  Is Featured (max 2 ads show in home page)
+                </label>
+              </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Image URL *</label>
-              <Input
-                placeholder="https://... or /uploads/..."
-                value={newAd.imageUrl}
-                onChange={(e) => setNewAd({ ...newAd, imageUrl: e.target.value })}
-                required
-              />
+              <DialogFooter className="pt-3">
+                <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleSaveEdit}
+                  disabled={isUpdating}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
+                >
+                  {isUpdating ? "Saving..." : "Save Changes"}
+                </Button>
+              </DialogFooter>
             </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Destination Link URL</label>
-              <Input
-                placeholder="e.g. /category/batteries"
-                value={newAd.linkUrl}
-                onChange={(e) => setNewAd({ ...newAd, linkUrl: e.target.value })}
-              />
-            </div>
-
-            <Button type="submit" disabled={isSubmitting} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold">
-              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save Ad"}
-            </Button>
-          </form>
+          )}
         </DialogContent>
       </Dialog>
     </div>

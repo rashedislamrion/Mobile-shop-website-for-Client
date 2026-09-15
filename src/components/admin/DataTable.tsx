@@ -27,7 +27,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { ArrowUpDown, ChevronDown, ChevronUp, MoreVertical, SearchX } from "lucide-react";
-import { TableAction } from "@/types/table";
+import { TableAction, StatusVariant } from "@/types/table";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -203,8 +203,9 @@ export function DataTable<TData, TValue>({
 // HELPER COMPONENTS FOR COLUMNS
 // ----------------------------------------------------------------------------
 
-export function StatusBadge({ status, type = "success" }: { status: string, type?: "success" | "warning" | "danger" | "info" | "notice" }) {
-  const styles = {
+export function StatusBadge({ status, type = "success" }: { status: string, type?: StatusVariant }) {
+  const styles: Record<StatusVariant, string> = {
+    default: "bg-slate-50 text-slate-700 border-slate-200",
     success: "bg-emerald-50 text-emerald-700 border-emerald-200",
     warning: "bg-amber-50 text-amber-700 border-amber-200",
     danger: "bg-red-50 text-red-700 border-red-200",
@@ -212,7 +213,8 @@ export function StatusBadge({ status, type = "success" }: { status: string, type
     notice: "bg-orange-50 text-orange-700 border-orange-200",
   };
   
-  const dotStyles = {
+  const dotStyles: Record<StatusVariant, string> = {
+    default: "bg-slate-500",
     success: "bg-emerald-500",
     warning: "bg-amber-500",
     danger: "bg-red-500",
@@ -241,7 +243,8 @@ export function ActionDropdown({ actions, rowData }: { actions: TableAction[], r
         {actions.map((action, i) => (
           <DropdownMenuItem 
             key={i} 
-            onClick={() => action.onClick(rowData)}
+            disabled={action.disabled}
+            onClick={() => !action.disabled && action.onClick(rowData)}
             className={`flex items-center gap-2 cursor-pointer ${action.variant === 'destructive' ? 'text-red-600 focus:text-red-700 focus:bg-red-50' : 'text-slate-700 focus:bg-slate-50'}`}
           >
             {action.icon && <span className="w-4 h-4">{action.icon}</span>}

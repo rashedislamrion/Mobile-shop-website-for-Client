@@ -30,31 +30,84 @@ let AuthController = class AuthController {
     }
     async registerCustomer(dto, res) {
         const { accessToken, refreshToken } = await this.authService.registerCustomer(dto);
-        this.setRefreshTokenCookie(res, refreshToken);
+        this.setCustomerRefreshTokenCookie(res, refreshToken);
         return { accessToken };
     }
     async loginCustomer(dto, res) {
         const { accessToken, refreshToken } = await this.authService.loginCustomer(dto);
-        this.setRefreshTokenCookie(res, refreshToken);
+        this.setCustomerRefreshTokenCookie(res, refreshToken);
         return { accessToken };
     }
     async loginStaff(dto, res) {
-        const { accessToken, refreshToken } = await this.authService.loginStaff(dto);
-        this.setRefreshTokenCookie(res, refreshToken);
+        const { accessToken, refreshToken, user } = await this.authService.loginStaff(dto);
+        this.setStaffRefreshTokenCookie(res, refreshToken);
+        return { accessToken, user };
+    }
+    async refreshCustomerTokens(req, res) {
+        const token = req.cookies?.['customer_refresh_token'] || req.cookies?.['refresh_token'];
+        if (!token)
+            throw new common_1.UnauthorizedException('No customer refresh token provided');
+        const { accessToken, refreshToken } = await this.authService.refreshTokens(token);
+        this.setCustomerRefreshTokenCookie(res, refreshToken);
+        return { accessToken };
+    }
+    async refreshStaffTokens(req, res) {
+        const token = req.cookies?.['staff_refresh_token'] || req.cookies?.['refresh_token'];
+        if (!token)
+            throw new common_1.UnauthorizedException('No staff refresh token provided');
+        const { accessToken, refreshToken } = await this.authService.refreshTokens(token);
+        this.setStaffRefreshTokenCookie(res, refreshToken);
         return { accessToken };
     }
     async refreshTokens(req, res) {
-        const oldRefreshToken = req.cookies?.['refresh_token'];
-        const { accessToken, refreshToken } = await this.authService.refreshTokens(oldRefreshToken);
-        this.setRefreshTokenCookie(res, refreshToken);
+        const token = req.cookies?.['staff_refresh_token'] ||
+            req.cookies?.['customer_refresh_token'] ||
+            req.cookies?.['refresh_token'];
+        if (!token)
+            throw new common_1.UnauthorizedException('No refresh token provided');
+        const { accessToken, refreshToken } = await this.authService.refreshTokens(token);
+        if (req.cookies?.['staff_refresh_token']) {
+            this.setStaffRefreshTokenCookie(res, refreshToken);
+        }
+        else {
+            this.setCustomerRefreshTokenCookie(res, refreshToken);
+        }
         return { accessToken };
     }
-    async logout(req, res, userId) {
-        const refreshToken = req.cookies?.['refresh_token'];
-        if (refreshToken) {
+    async customerLogout(req, res, userId) {
+        const refreshToken = req.cookies?.['customer_refresh_token'] || req.cookies?.['refresh_token'];
+        if (refreshToken && userId) {
             await this.authService.logout(refreshToken, userId);
         }
-        res.clearCookie('refresh_token');
+        const isProd = process.env.NODE_ENV === 'production';
+        const clearOpts = { path: '/', secure: isProd, sameSite: isProd ? 'none' : 'lax' };
+        res.clearCookie('customer_refresh_token', clearOpts);
+        res.clearCookie('refresh_token', clearOpts);
+        return { success: true };
+    }
+    async staffLogout(req, res, userId) {
+        const refreshToken = req.cookies?.['staff_refresh_token'] || req.cookies?.['refresh_token'];
+        if (refreshToken && userId) {
+            await this.authService.logout(refreshToken, userId);
+        }
+        const isProd = process.env.NODE_ENV === 'production';
+        const clearOpts = { path: '/', secure: isProd, sameSite: isProd ? 'none' : 'lax' };
+        res.clearCookie('staff_refresh_token', clearOpts);
+        res.clearCookie('refresh_token', clearOpts);
+        return { success: true };
+    }
+    async logout(req, res, userId) {
+        const refreshToken = req.cookies?.['staff_refresh_token'] ||
+            req.cookies?.['customer_refresh_token'] ||
+            req.cookies?.['refresh_token'];
+        if (refreshToken && userId) {
+            await this.authService.logout(refreshToken, userId);
+        }
+        const isProd = process.env.NODE_ENV === 'production';
+        const clearOpts = { path: '/', secure: isProd, sameSite: isProd ? 'none' : 'lax' };
+        res.clearCookie('customer_refresh_token', clearOpts);
+        res.clearCookie('staff_refresh_token', clearOpts);
+        res.clearCookie('refresh_token', clearOpts);
         return { success: true };
     }
     async changePassword(userId, userType, dto) {
@@ -69,11 +122,23 @@ let AuthController = class AuthController {
     async getMe(userId, userType) {
         return this.authService.getMe(userId, userType);
     }
-    setRefreshTokenCookie(res, token) {
-        res.cookie('refresh_token', token, {
+    setCustomerRefreshTokenCookie(res, token) {
+        const isProd = process.env.NODE_ENV === 'production';
+        res.cookie('customer_refresh_token', token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
+            secure: isProd,
+            sameSite: isProd ? 'none' : 'lax',
+            path: '/',
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+        });
+    }
+    setStaffRefreshTokenCookie(res, token) {
+        const isProd = process.env.NODE_ENV === 'production';
+        res.cookie('staff_refresh_token', token, {
+            httpOnly: true,
+            secure: isProd,
+            sameSite: isProd ? 'none' : 'lax',
+            path: '/',
             maxAge: 7 * 24 * 60 * 60 * 1000,
         });
     }
@@ -100,7 +165,7 @@ __decorate([
 ], AuthController.prototype, "loginCustomer", null);
 __decorate([
     (0, public_decorator_1.Public)(),
-    (0, throttler_1.Throttle)({ default: { limit: 5, ttl: 60000 } }),
+    (0, throttler_1.Throttle)({ default: { limit: 100, ttl: 60000 } }),
     (0, common_1.Post)('staff/login'),
     __param(0, (0, common_1.Body)()),
     __param(1, (0, common_1.Res)({ passthrough: true })),
@@ -110,6 +175,24 @@ __decorate([
 ], AuthController.prototype, "loginStaff", null);
 __decorate([
     (0, public_decorator_1.Public)(),
+    (0, common_1.Post)('customer/refresh'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "refreshCustomerTokens", null);
+__decorate([
+    (0, public_decorator_1.Public)(),
+    (0, common_1.Post)('staff/refresh'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "refreshStaffTokens", null);
+__decorate([
+    (0, public_decorator_1.Public)(),
     (0, common_1.Post)('refresh'),
     __param(0, (0, common_1.Req)()),
     __param(1, (0, common_1.Res)({ passthrough: true })),
@@ -117,6 +200,24 @@ __decorate([
     __metadata("design:paramtypes", [Object, Object]),
     __metadata("design:returntype", Promise)
 ], AuthController.prototype, "refreshTokens", null);
+__decorate([
+    (0, common_1.Post)('customer/logout'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
+    __param(2, (0, current_user_decorator_1.CurrentUser)('sub')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object, String]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "customerLogout", null);
+__decorate([
+    (0, common_1.Post)('staff/logout'),
+    __param(0, (0, common_1.Req)()),
+    __param(1, (0, common_1.Res)({ passthrough: true })),
+    __param(2, (0, current_user_decorator_1.CurrentUser)('sub')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, Object, String]),
+    __metadata("design:returntype", Promise)
+], AuthController.prototype, "staffLogout", null);
 __decorate([
     (0, common_1.Post)('logout'),
     __param(0, (0, common_1.Req)()),

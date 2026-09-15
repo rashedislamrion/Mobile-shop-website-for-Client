@@ -9,18 +9,28 @@ import {
   CreateEmployeeDto,
   UpdateEmployeeDto,
   UpdateStatusDto,
-  UpdateSpecializationsDto,
+  MakeTechnicianDto,
 } from './dto/create-employee.dto';
 import * as bcrypt from 'bcrypt';
 import { Prisma, StaffStatus } from '@prisma/client';
 
-const STAFF_SELECT_SAFE = {
+export const STAFF_SELECT_SAFE = {
   id: true,
   employeeId: true,
   name: true,
   email: true,
   phone: true,
   photo: true,
+  address: true,
+  birthCertificateUrl: true,
+  bonusLimit: true,
+  adminPanelAccess: true,
+  isTechnician: true,
+  commissionRate: true,
+  emergencyContactName: true,
+  emergencyContactPhone: true,
+  emergencyContactRelationship: true,
+  sendCredentialsEmailOnCreate: true,
   gender: true,
   dob: true,
   nidNumber: true,
@@ -30,6 +40,13 @@ const STAFF_SELECT_SAFE = {
   department: { select: { id: true, name: true } },
   branchId: true,
   branch: { select: { id: true, name: true, code: true } },
+  branchAccess: {
+    select: {
+      id: true,
+      branchId: true,
+      branch: { select: { id: true, name: true, code: true } },
+    },
+  },
   employmentType: true,
   joiningDate: true,
   reportingManagerId: true,
@@ -39,7 +56,6 @@ const STAFF_SELECT_SAFE = {
   allowances: true,
   paymentMethod: true,
   bankAccountNo: true,
-  specializations: true,
   createdAt: true,
   updatedAt: true,
 };
@@ -68,6 +84,14 @@ export class EmployeeService {
     return `EMP-${String(count + 1).padStart(4, '0')}`;
   }
 
+  private mapStaffAccess(staff: any) {
+    const access = staff.role?.scope === 'GLOBAL' ? 'Admin' : 'Branch Only';
+    return {
+      ...staff,
+      access,
+    };
+  }
+
   async findAll(query?: {
     department?: string;
     role?: string;
@@ -90,7 +114,12 @@ export class EmployeeService {
         { role: { name: { equals: query.role, mode: 'insensitive' } } },
       ];
     }
-    if (query?.branch) where.branchId = query.branch;
+    if (query?.branch) {
+      where.OR = [
+        { branchId: query.branch },
+        { branchAccess: { some: { branchId: query.branch } } },
+      ];
+    }
     if (query?.status) where.status = query.status;
 
     if (query?.search?.trim()) {
@@ -103,7 +132,7 @@ export class EmployeeService {
       ];
     }
 
-    const [total, data] = await Promise.all([
+    const [total, rawData] = await Promise.all([
       this.prisma.staff.count({ where }),
       this.prisma.staff.findMany({
         where,
@@ -114,13 +143,15 @@ export class EmployeeService {
       }),
     ]);
 
+    const data = rawData.map((s) => this.mapStaffAccess(s));
+
     return {
       data,
       meta: {
         total,
         page,
         limit,
-        totalPages: Math.ceil(total / limit),
+        totalPages: Math.ceil(total / limit) || 1,
       },
     };
   }
@@ -137,7 +168,7 @@ export class EmployeeService {
     });
 
     if (!staff) throw new NotFoundException(`Employee with ID "${id}" not found.`);
-    return staff;
+    return this.mapStaffAccess(staff);
   }
 
   async create(dto: CreateEmployeeDto) {
@@ -145,32 +176,66 @@ export class EmployeeService {
     const passwordHash = await bcrypt.hash(rawPassword, 10);
     const employeeId = await this.generateNextEmployeeId();
 
+    const branchIds = dto.branchIds && dto.branchIds.length > 0
+      ? dto.branchIds
+      : dto.branchId
+      ? [dto.branchId]
+      : [];
+    const primaryBranchId = branchIds.length > 0 ? branchIds[0] : dto.branchId || null;
+
     try {
-      return await this.prisma.staff.create({
-        data: {
-          employeeId,
-          name: dto.name,
-          email: dto.email.toLowerCase().trim(),
-          phone: dto.phone.trim(),
-          passwordHash,
-          photo: dto.photo || null,
-          gender: dto.gender || null,
-          dob: dto.dob ? new Date(dto.dob) : null,
-          nidNumber: dto.nidNumber || null,
-          roleId: dto.roleId,
-          departmentId: dto.departmentId || null,
-          branchId: dto.branchId || null,
-          employmentType: dto.employmentType || 'FULL_TIME',
-          joiningDate: dto.joiningDate ? new Date(dto.joiningDate) : new Date(),
-          reportingManagerId: dto.reportingManagerId || null,
-          status: dto.status || StaffStatus.ACTIVE,
-          basicSalary: dto.basicSalary || 0,
-          allowances: dto.allowances ? (dto.allowances as any) : undefined,
-          paymentMethod: dto.paymentMethod || null,
-          bankAccountNo: dto.bankAccountNo || null,
-          specializations: dto.specializations || [],
-        },
-        select: STAFF_SELECT_SAFE,
+      return await this.prisma.$transaction(async (tx) => {
+        const staff = await tx.staff.create({
+          data: {
+            employeeId,
+            name: dto.name,
+            email: dto.email.toLowerCase().trim(),
+            phone: dto.phone.trim(),
+            passwordHash,
+            photo: dto.photo || null,
+            address: dto.address || null,
+            birthCertificateUrl: dto.birthCertificateUrl || null,
+            bonusLimit: dto.bonusLimit !== undefined ? new Prisma.Decimal(dto.bonusLimit) : new Prisma.Decimal(0),
+            adminPanelAccess: dto.adminPanelAccess ?? false,
+            isTechnician: dto.isTechnician ?? false,
+            commissionRate: dto.commissionRate !== undefined ? new Prisma.Decimal(dto.commissionRate) : new Prisma.Decimal(0),
+            emergencyContactName: dto.emergencyContactName || null,
+            emergencyContactPhone: dto.emergencyContactPhone || null,
+            emergencyContactRelationship: dto.emergencyContactRelationship || null,
+            sendCredentialsEmailOnCreate: dto.sendCredentialsEmail ?? false,
+            gender: dto.gender || null,
+            dob: dto.dob ? new Date(dto.dob) : null,
+            nidNumber: dto.nidNumber || null,
+            roleId: dto.roleId,
+            departmentId: dto.departmentId || null,
+            branchId: primaryBranchId,
+            employmentType: dto.employmentType || 'FULL_TIME',
+            joiningDate: dto.joiningDate ? new Date(dto.joiningDate) : new Date(),
+            reportingManagerId: dto.reportingManagerId || null,
+            status: dto.status || StaffStatus.ACTIVE,
+            basicSalary: dto.basicSalary ? new Prisma.Decimal(dto.basicSalary) : new Prisma.Decimal(0),
+            allowances: dto.allowances ? (dto.allowances as any) : undefined,
+            paymentMethod: dto.paymentMethod || null,
+            bankAccountNo: dto.bankAccountNo || null,
+          },
+        });
+
+        if (branchIds.length > 0) {
+          await tx.staffBranchAccess.createMany({
+            data: branchIds.map((bId) => ({
+              staffId: staff.id,
+              branchId: bId,
+            })),
+            skipDuplicates: true,
+          });
+        }
+
+        const fullStaff = await tx.staff.findUnique({
+          where: { id: staff.id },
+          select: STAFF_SELECT_SAFE,
+        });
+
+        return this.mapStaffAccess(fullStaff);
       });
     } catch (e: any) {
       if (e.code === 'P2002') {
@@ -195,6 +260,17 @@ export class EmployeeService {
       updateData.passwordHash = await bcrypt.hash(dto.password, 10);
     }
     if (dto.photo !== undefined) updateData.photo = dto.photo || null;
+    if (dto.address !== undefined) updateData.address = dto.address || null;
+    if (dto.birthCertificateUrl !== undefined) updateData.birthCertificateUrl = dto.birthCertificateUrl || null;
+    if (dto.bonusLimit !== undefined) updateData.bonusLimit = new Prisma.Decimal(dto.bonusLimit);
+    if (dto.adminPanelAccess !== undefined) updateData.adminPanelAccess = dto.adminPanelAccess;
+    if (dto.isTechnician !== undefined) updateData.isTechnician = dto.isTechnician;
+    if (dto.commissionRate !== undefined) updateData.commissionRate = new Prisma.Decimal(dto.commissionRate);
+    if (dto.emergencyContactName !== undefined) updateData.emergencyContactName = dto.emergencyContactName || null;
+    if (dto.emergencyContactPhone !== undefined) updateData.emergencyContactPhone = dto.emergencyContactPhone || null;
+    if (dto.emergencyContactRelationship !== undefined) updateData.emergencyContactRelationship = dto.emergencyContactRelationship || null;
+    if (dto.sendCredentialsEmail !== undefined) updateData.sendCredentialsEmailOnCreate = dto.sendCredentialsEmail;
+
     if (dto.gender !== undefined) updateData.gender = dto.gender || null;
     if (dto.dob !== undefined) updateData.dob = dto.dob ? new Date(dto.dob) : null;
     if (dto.nidNumber !== undefined) updateData.nidNumber = dto.nidNumber || null;
@@ -204,9 +280,14 @@ export class EmployeeService {
         ? { connect: { id: dto.departmentId } }
         : { disconnect: true };
     }
-    if (dto.branchId !== undefined) {
+
+    if (dto.branchIds !== undefined) {
+      const primaryId = dto.branchIds.length > 0 ? dto.branchIds[0] : null;
+      updateData.branch = primaryId ? { connect: { id: primaryId } } : { disconnect: true };
+    } else if (dto.branchId !== undefined) {
       updateData.branch = dto.branchId ? { connect: { id: dto.branchId } } : { disconnect: true };
     }
+
     if (dto.employmentType !== undefined) updateData.employmentType = dto.employmentType;
     if (dto.joiningDate !== undefined) {
       updateData.joiningDate = dto.joiningDate ? new Date(dto.joiningDate) : undefined;
@@ -217,17 +298,40 @@ export class EmployeeService {
         : { disconnect: true };
     }
     if (dto.status !== undefined) updateData.status = dto.status;
-    if (dto.basicSalary !== undefined) updateData.basicSalary = dto.basicSalary;
+    if (dto.basicSalary !== undefined) updateData.basicSalary = new Prisma.Decimal(dto.basicSalary);
     if (dto.allowances !== undefined) updateData.allowances = dto.allowances as any;
     if (dto.paymentMethod !== undefined) updateData.paymentMethod = dto.paymentMethod || null;
     if (dto.bankAccountNo !== undefined) updateData.bankAccountNo = dto.bankAccountNo || null;
-    if (dto.specializations !== undefined) updateData.specializations = dto.specializations;
 
     try {
-      return await this.prisma.staff.update({
-        where: { id },
-        data: updateData,
-        select: STAFF_SELECT_SAFE,
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.staff.update({
+          where: { id },
+          data: updateData,
+        });
+
+        if (dto.branchIds !== undefined) {
+          await tx.staffBranchAccess.deleteMany({
+            where: { staffId: id },
+          });
+
+          if (dto.branchIds.length > 0) {
+            await tx.staffBranchAccess.createMany({
+              data: dto.branchIds.map((bId) => ({
+                staffId: id,
+                branchId: bId,
+              })),
+              skipDuplicates: true,
+            });
+          }
+        }
+
+        const fullStaff = await tx.staff.findUnique({
+          where: { id },
+          select: STAFF_SELECT_SAFE,
+        });
+
+        return this.mapStaffAccess(fullStaff);
       });
     } catch (e: any) {
       if (e.code === 'P2002') {
@@ -255,20 +359,12 @@ export class EmployeeService {
 
   async updateStatus(id: string, dto: UpdateStatusDto) {
     await this.findOne(id);
-    return this.prisma.staff.update({
+    const updated = await this.prisma.staff.update({
       where: { id },
       data: { status: dto.status },
       select: STAFF_SELECT_SAFE,
     });
-  }
-
-  async updateSpecializations(id: string, dto: UpdateSpecializationsDto) {
-    await this.findOne(id);
-    return this.prisma.staff.update({
-      where: { id },
-      data: { specializations: dto.specializations },
-      select: STAFF_SELECT_SAFE,
-    });
+    return this.mapStaffAccess(updated);
   }
 
   async remove(id: string) {
@@ -308,10 +404,15 @@ export class EmployeeService {
     });
   }
 
+  // ============================= TECHNICIANS =============================
+
   async findTechnicians() {
     const techs = await this.prisma.staff.findMany({
       where: {
-        role: { name: { equals: 'Technician', mode: 'insensitive' } },
+        OR: [
+          { isTechnician: true },
+          { role: { name: { contains: 'technician', mode: 'insensitive' } } },
+        ],
       },
       select: {
         ...STAFF_SELECT_SAFE,
@@ -334,12 +435,70 @@ export class EmployeeService {
       ).length;
 
       const { ServiceJob, ...rest } = t;
+      const mapped = this.mapStaffAccess(rest);
       return {
-        ...rest,
+        ...mapped,
         activeJobsCount: activeJobs,
         completedJobsCount: completedJobs,
         totalJobsCount: t.ServiceJob.length,
       };
     });
+  }
+
+  async findEligibleForTechnician() {
+    return this.prisma.staff.findMany({
+      where: {
+        status: StaffStatus.ACTIVE,
+        isTechnician: false,
+      },
+      select: {
+        id: true,
+        name: true,
+        employeeId: true,
+        phone: true,
+        email: true,
+        photo: true,
+        department: { select: { id: true, name: true } },
+        role: { select: { id: true, name: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async makeTechnician(id: string, dto: MakeTechnicianDto) {
+    await this.findOne(id);
+    const updated = await this.prisma.staff.update({
+      where: { id },
+      data: {
+        isTechnician: true,
+        commissionRate: new Prisma.Decimal(dto.commissionRate || 0),
+      },
+      select: STAFF_SELECT_SAFE,
+    });
+    return this.mapStaffAccess(updated);
+  }
+
+  async updateTechnician(id: string, dto: MakeTechnicianDto) {
+    await this.findOne(id);
+    const updated = await this.prisma.staff.update({
+      where: { id },
+      data: {
+        commissionRate: new Prisma.Decimal(dto.commissionRate || 0),
+      },
+      select: STAFF_SELECT_SAFE,
+    });
+    return this.mapStaffAccess(updated);
+  }
+
+  async removeTechnician(id: string) {
+    await this.findOne(id);
+    const updated = await this.prisma.staff.update({
+      where: { id },
+      data: {
+        isTechnician: false,
+      },
+      select: STAFF_SELECT_SAFE,
+    });
+    return this.mapStaffAccess(updated);
   }
 }

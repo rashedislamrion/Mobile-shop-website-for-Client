@@ -1,7 +1,17 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { apiGet, apiPost, setAccessToken, onUnauthorized } from "@/lib/api-client";
+import {
+  apiGet,
+  apiPost,
+  getCustomerToken,
+  setCustomerToken,
+  getStaffToken,
+  setStaffToken,
+  onCustomerUnauthorized,
+  onStaffUnauthorized,
+  onUnauthorized,
+} from "@/lib/api-client";
 
 export interface UserRole {
   id: string;
@@ -52,13 +62,17 @@ export interface AuthContextType {
   hasPermission: (module: string, action: string) => boolean;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const CUSTOMER_USER_KEY = "novamobile_customer_user";
+export const STAFF_USER_KEY = "novamobile_staff_user";
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+// 1. CUSTOMER AUTH CONTEXT
+const CustomerAuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function CustomerAuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(() => {
     if (typeof window !== "undefined") {
       try {
-        const saved = localStorage.getItem("novamobile_user");
+        const saved = localStorage.getItem(CUSTOMER_USER_KEY);
         return saved ? JSON.parse(saved) : null;
       } catch {
         return null;
@@ -70,67 +84,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchCurrentUser = useCallback(async () => {
     try {
-      const profile = await apiGet<AuthUser>("/auth/me");
-      setUser(profile);
-      if (typeof window !== "undefined") {
-        if (profile) {
-          localStorage.setItem("novamobile_user", JSON.stringify(profile));
-        } else {
-          localStorage.removeItem("novamobile_user");
-        }
+      const token = getCustomerToken();
+      if (!token) {
+        setUser(null);
+        if (typeof window !== "undefined") localStorage.removeItem(CUSTOMER_USER_KEY);
+        return null;
       }
-      return profile;
+      const profile = await apiGet<AuthUser>("/auth/me", undefined, { authScope: "CUSTOMER" });
+      if (profile && profile.userType === "CUSTOMER") {
+        setUser(profile);
+        if (typeof window !== "undefined") {
+          localStorage.setItem(CUSTOMER_USER_KEY, JSON.stringify(profile));
+        }
+        return profile;
+      } else {
+        setUser(null);
+        if (typeof window !== "undefined") localStorage.removeItem(CUSTOMER_USER_KEY);
+        return null;
+      }
     } catch {
       setUser(null);
-      if (typeof window !== "undefined") {
-        localStorage.removeItem("novamobile_user");
-      }
+      if (typeof window !== "undefined") localStorage.removeItem(CUSTOMER_USER_KEY);
       return null;
     }
   }, []);
 
-  // Try auto session restore on mount via token / refresh cookie
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const token = getAccessToken();
+        const token = getCustomerToken();
         if (token) {
           const profile = await fetchCurrentUser();
           if (!profile) {
-            // Token might be expired, attempt refresh
-            const res = await apiPost<{ accessToken: string }>("/auth/refresh");
+            const res = await apiPost<{ accessToken: string }>("/auth/customer/refresh", undefined, { authScope: "CUSTOMER" });
             if (res?.accessToken) {
-              setAccessToken(res.accessToken);
-              if (mounted) {
-                await fetchCurrentUser();
-              }
+              setCustomerToken(res.accessToken);
+              if (mounted) await fetchCurrentUser();
             }
           }
         } else {
-          const res = await apiPost<{ accessToken: string }>("/auth/refresh");
+          const res = await apiPost<{ accessToken: string }>("/auth/customer/refresh", undefined, { authScope: "CUSTOMER" });
           if (res?.accessToken) {
-            setAccessToken(res.accessToken);
-            if (mounted) {
-              await fetchCurrentUser();
-            }
+            setCustomerToken(res.accessToken);
+            if (mounted) await fetchCurrentUser();
           }
         }
       } catch {
-        // Not logged in or expired refresh token
+        // Not logged in
       } finally {
-        if (mounted) {
-          setIsLoading(false);
-        }
+        if (mounted) setIsLoading(false);
       }
     })();
 
-    const cleanup = onUnauthorized(() => {
+    const cleanup = onCustomerUnauthorized(() => {
       setUser(null);
-      setAccessToken(null);
-      if (typeof window !== "undefined") {
-        localStorage.removeItem("novamobile_user");
-      }
+      setCustomerToken(null);
+      if (typeof window !== "undefined") localStorage.removeItem(CUSTOMER_USER_KEY);
     });
 
     return () => {
@@ -139,31 +149,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [fetchCurrentUser]);
 
-  const login = async (
-    credentials: { emailOrPhone: string; password: string; email?: string },
-    isStaff = false,
-  ) => {
+  const login = async (credentials: { emailOrPhone: string; password: string; email?: string }) => {
     setIsLoading(true);
     try {
-      const endpoint = isStaff ? "/auth/staff/login" : "/auth/customer/login";
-      const payload = isStaff
-        ? {
-            email: credentials.email || credentials.emailOrPhone,
-            emailOrPhone: credentials.emailOrPhone || credentials.email,
-            password: credentials.password,
-          }
-        : {
-            emailOrPhone: credentials.emailOrPhone,
-            password: credentials.password,
-          };
-
-      const res = await apiPost<{ accessToken: string }>(endpoint, payload);
+      const payload = {
+        emailOrPhone: credentials.emailOrPhone || credentials.email,
+        password: credentials.password,
+      };
+      const res = await apiPost<{ accessToken: string }>("/auth/customer/login", payload, { authScope: "CUSTOMER" });
       if (res?.accessToken) {
-        setAccessToken(res.accessToken);
+        setCustomerToken(res.accessToken);
         const profile = await fetchCurrentUser();
         return profile;
       }
-      throw new Error("Failed to obtain access token");
+      throw new Error("Failed to obtain customer access token");
     } finally {
       setIsLoading(false);
     }
@@ -171,15 +170,162 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
-      await apiPost("/auth/logout");
+      await apiPost("/auth/customer/logout", undefined, { authScope: "CUSTOMER" });
     } catch {
-      // Ignore logout errors
+      // Ignore
     } finally {
       setUser(null);
-      setAccessToken(null);
-      if (typeof window !== "undefined") {
-        localStorage.removeItem("novamobile_user");
+      setCustomerToken(null);
+      if (typeof window !== "undefined") localStorage.removeItem(CUSTOMER_USER_KEY);
+    }
+  };
+
+  const refreshUser = async () => {
+    await fetchCurrentUser();
+  };
+
+  const hasPermission = () => false;
+
+  return (
+    <CustomerAuthContext.Provider
+      value={{
+        user,
+        isLoggedIn: !!user,
+        isAuthenticated: !!user,
+        isLoading,
+        customerName: user ? user.name : "",
+        login,
+        logout,
+        refreshUser,
+        hasPermission,
+      }}
+    >
+      {children}
+    </CustomerAuthContext.Provider>
+  );
+}
+
+export function useCustomerAuth() {
+  const context = useContext(CustomerAuthContext);
+  if (!context) {
+    throw new Error("useCustomerAuth must be used within a CustomerAuthProvider");
+  }
+  return context;
+}
+
+// 2. STAFF AUTH CONTEXT
+const StaffAuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function StaffAuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(STAFF_USER_KEY);
+        return saved ? JSON.parse(saved) : null;
+      } catch {
+        return null;
       }
+    }
+    return null;
+  });
+  const [isLoading, setIsLoading] = useState(true);
+
+  const fetchCurrentUser = useCallback(async () => {
+    try {
+      const token = getStaffToken();
+      if (!token) {
+        setUser(null);
+        if (typeof window !== "undefined") localStorage.removeItem(STAFF_USER_KEY);
+        return null;
+      }
+      const profile = await apiGet<AuthUser>("/auth/me", undefined, { authScope: "STAFF" });
+      if (profile && profile.userType === "STAFF") {
+        setUser(profile);
+        if (typeof window !== "undefined") {
+          localStorage.setItem(STAFF_USER_KEY, JSON.stringify(profile));
+        }
+        return profile;
+      } else {
+        setUser(null);
+        if (typeof window !== "undefined") localStorage.removeItem(STAFF_USER_KEY);
+        return null;
+      }
+    } catch {
+      setUser(null);
+      if (typeof window !== "undefined") localStorage.removeItem(STAFF_USER_KEY);
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const token = getStaffToken();
+        if (token) {
+          const profile = await fetchCurrentUser();
+          if (!profile) {
+            const res = await apiPost<{ accessToken: string }>("/auth/staff/refresh", undefined, { authScope: "STAFF" });
+            if (res?.accessToken) {
+              setStaffToken(res.accessToken);
+              if (mounted) await fetchCurrentUser();
+            }
+          }
+        } else {
+          const res = await apiPost<{ accessToken: string }>("/auth/staff/refresh", undefined, { authScope: "STAFF" });
+          if (res?.accessToken) {
+            setStaffToken(res.accessToken);
+            if (mounted) await fetchCurrentUser();
+          }
+        }
+      } catch {
+        // Not logged in as staff
+      } finally {
+        if (mounted) setIsLoading(false);
+      }
+    })();
+
+    const cleanup = onStaffUnauthorized(() => {
+      setUser(null);
+      setStaffToken(null);
+      if (typeof window !== "undefined") localStorage.removeItem(STAFF_USER_KEY);
+    });
+
+    return () => {
+      mounted = false;
+      cleanup();
+    };
+  }, [fetchCurrentUser]);
+
+  const login = async (credentials: { emailOrPhone: string; password: string; email?: string }) => {
+    setIsLoading(true);
+    try {
+      const payload = {
+        email: credentials.email || credentials.emailOrPhone,
+        emailOrPhone: credentials.emailOrPhone || credentials.email,
+        password: credentials.password,
+      };
+      const res = await apiPost<{ accessToken: string }>("/auth/staff/login", payload, { authScope: "STAFF" });
+      if (res?.accessToken) {
+        setStaffToken(res.accessToken);
+        const profile = await fetchCurrentUser();
+        return profile;
+      }
+      throw new Error("Failed to obtain staff access token");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await apiPost("/auth/staff/logout", undefined, { authScope: "STAFF" });
+    } catch {
+      // Ignore
+    } finally {
+      setUser(null);
+      setStaffToken(null);
+      if (typeof window !== "undefined") localStorage.removeItem(STAFF_USER_KEY);
     }
   };
 
@@ -189,10 +335,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const hasPermission = useCallback(
     (moduleName: string, action = "READ"): boolean => {
-      if (!user) return false;
-      // Staff validation
-      const isStaffUser = user.userType === "STAFF" || !!user.roleId || !!user.role;
-      if (!isStaffUser) return false;
+      if (!user || user.userType !== "STAFF") return false;
 
       const roleName = user.role?.name?.toLowerCase() || "";
       const isGlobalAdmin =
@@ -212,17 +355,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [user],
   );
 
-  const customerName = user ? user.name : "";
-  const isLoggedIn = !!user;
-
   return (
-    <AuthContext.Provider
+    <StaffAuthContext.Provider
       value={{
         user,
-        isLoggedIn,
+        isLoggedIn: !!user,
         isAuthenticated: !!user,
         isLoading,
-        customerName,
+        customerName: user ? user.name : "",
         login,
         logout,
         refreshUser,
@@ -230,18 +370,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }}
     >
       {children}
-    </AuthContext.Provider>
+    </StaffAuthContext.Provider>
   );
 }
 
-export function useAuth() {
-  const context = useContext(AuthContext);
+export function useStaffAuth() {
+  const context = useContext(StaffAuthContext);
   if (!context) {
-    throw new Error("useAuth must be used within an AuthProvider");
+    throw new Error("useStaffAuth must be used within a StaffAuthProvider");
   }
   return context;
 }
 
-// Backwards compatibility alias for components using useMockAuth/MockAuthProvider
+// 3. UNIFIED / ADAPTIVE AUTH PROVIDER (Wraps both customer & staff)
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  return (
+    <CustomerAuthProvider>
+      <StaffAuthProvider>
+        {children}
+      </StaffAuthProvider>
+    </CustomerAuthProvider>
+  );
+}
+
+// Adaptive useAuth: automatically routes to StaffAuth when in /admin, else CustomerAuth
+export function useAuth() {
+  const staffCtx = useContext(StaffAuthContext);
+  const customerCtx = useContext(CustomerAuthContext);
+
+  if (typeof window !== "undefined" && window.location.pathname.startsWith("/admin")) {
+    if (staffCtx) return staffCtx;
+  }
+
+  if (customerCtx) return customerCtx;
+  if (staffCtx) return staffCtx;
+
+  throw new Error("useAuth must be used within an AuthProvider");
+}
+
 export const useMockAuth = useAuth;
 export const MockAuthProvider = AuthProvider;
+

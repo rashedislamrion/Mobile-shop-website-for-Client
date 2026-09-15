@@ -37,9 +37,15 @@ export class UnitService {
   }
 
   async create(dto: CreateUnitDto) {
+    const derivedCode = dto.shortCode?.trim() || dto.name.trim().replace(/[^a-zA-Z0-9]/g, '').slice(0, 4).toUpperCase() || 'UNIT';
+
     try {
       return await this.prisma.unit.create({
-        data: dto,
+        data: {
+          name: dto.name,
+          shortCode: derivedCode,
+          status: dto.status || 'ACTIVE',
+        },
       });
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {

@@ -97,6 +97,252 @@ export class ReportController {
     });
   }
 
+  @Get('website-sales')
+  @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
+  getWebsiteSalesReport(
+    @Query('branch') branch?: string,
+    @Query('status') status?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.reportService.getWebsiteSalesReport({
+      branch,
+      status,
+      dateFrom,
+      dateTo,
+      search,
+    });
+  }
+
+  @Get('pos-sales')
+  @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
+  getPosSalesReport(
+    @Query('branch') branch?: string,
+    @Query('status') status?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('search') search?: string,
+    @Query('staffId') staffId?: string,
+  ) {
+    return this.reportService.getPosSalesReport({
+      branch,
+      status,
+      dateFrom,
+      dateTo,
+      search,
+      staffId,
+    });
+  }
+
+  @Get('service-sales')
+  @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
+  getServiceSalesReport(
+    @Query('branch') branch?: string,
+    @Query('status') status?: string,
+    @Query('technicianId') technicianId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.reportService.getServiceSalesReport({
+      branch,
+      status,
+      technicianId,
+      dateFrom,
+      dateTo,
+      search,
+    });
+  }
+
+  @Get('service-global')
+  @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
+  getGlobalServiceReport(
+    @Query('branch') branch?: string,
+    @Query('technicianId') technicianId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.reportService.getGlobalServiceReport({
+      branch,
+      technicianId,
+      dateFrom,
+      dateTo,
+      search,
+    });
+  }
+
+  @Get('servicing-technician')
+  getServicingTechnicianReport(
+    @CurrentUser() user: JwtPayload,
+    @Query('technicianId') technicianId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('search') search?: string,
+  ) {
+    const effectiveTechId = technicianId || user.sub;
+    return this.reportService.getServicingTechnicianReport(effectiveTechId, {
+      dateFrom,
+      dateTo,
+      search,
+    });
+  }
+
+  @Get('technician-performance')
+  @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
+  getTechnicianPerformanceReport(
+    @Query('branch') branch?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.reportService.getTechnicianPerformanceReport({
+      branch,
+      dateFrom,
+      dateTo,
+    });
+  }
+
+  @Get('technician-profit')
+  @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
+  getTechnicianProfitReport(
+    @Query('branch') branch?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.reportService.getTechnicianProfitReport({
+      branch,
+      dateFrom,
+      dateTo,
+    });
+  }
+
+  @Get('shopwise')
+  @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
+  getShopwiseReport(
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.reportService.getShopwiseReport({
+      dateFrom,
+      dateTo,
+    });
+  }
+
+  @Get('marketing-fee')
+  @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
+  getMarketingFeeReport(
+    @Query('branch') branch?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.reportService.getMarketingFeeReport({
+      branch,
+      dateFrom,
+      dateTo,
+    });
+  }
+
+  @Get('expense')
+  @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
+  getExpenseReport(
+    @Query('categoryId') categoryId?: string,
+    @Query('branch') branch?: string,
+    @Query('walletTypeId') walletTypeId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.reportService.getExpenseReport({
+      categoryId,
+      branch,
+      walletTypeId,
+      dateFrom,
+      dateTo,
+      search,
+    });
+  }
+
+  @Get('purchase')
+  @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
+  getPurchaseReport(
+    @Query('supplierId') supplierId?: string,
+    @Query('branch') branch?: string,
+    @Query('paymentStatus') paymentStatus?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.reportService.getPurchaseReport({
+      supplierId,
+      branch,
+      paymentStatus,
+      dateFrom,
+      dateTo,
+      search,
+    });
+  }
+
+  @Get('transactions')
+  @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
+  getTransactionsReport(
+    @Query('walletTypeId') walletTypeId?: string,
+    @Query('branch') branch?: string,
+    @Query('type') type?: string,
+    @Query('payType') payType?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.reportService.getTransactionsReport({
+      walletTypeId,
+      branch,
+      type,
+      payType,
+      dateFrom,
+      dateTo,
+      search,
+    });
+  }
+
+  @Get('product-stock')
+  @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
+  getProductStockReport(
+    @Query('inStockOnly') inStockOnly?: string,
+    @Query('branch') branch?: string,
+    @Query('brand') brand?: string,
+    @Query('category') category?: string,
+    @Query('quality') quality?: string,
+    @Query('color') color?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.reportService.getProductStockReport({
+      inStockOnly,
+      branch,
+      brand,
+      category,
+      quality,
+      color,
+      search,
+    });
+  }
+
+  @Get('courier')
+  @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
+  getCourierReport(
+    @Query('status') status?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.reportService.getCourierReport({
+      status,
+      dateFrom,
+      dateTo,
+      search,
+    });
+  }
+
   @Get('summary')
   @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
   getSummary(

@@ -52,3 +52,21 @@ export class CreateRoleDto {
   @IsOptional()
   cloneFromRoleId?: string;
 }
+
+export class RoleBranchPermissionItemDto {
+  @IsString()
+  @IsNotEmpty()
+  branchId: string;
+
+  @IsBoolean()
+  @IsNotEmpty()
+  canAccess: boolean;
+}
+
+export class UpdateRoleBranchPermissionsDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RoleBranchPermissionItemDto)
+  branchPermissions: RoleBranchPermissionItemDto[];
+}
+

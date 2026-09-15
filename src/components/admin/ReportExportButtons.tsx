@@ -3,7 +3,12 @@
 import { Download, FileText } from "lucide-react";
 import { toast } from "sonner";
 
-export function ReportExportButtons() {
+interface ReportExportButtonsProps {
+  data?: any;
+  filename?: string;
+}
+
+export function ReportExportButtons({ data, filename }: ReportExportButtonsProps = {}) {
   return (
     <div className="flex items-center gap-2">
       <button 

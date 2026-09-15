@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { PrismaService } from '../../prisma/prisma.service';
 import { PERMISSION_KEY, RequiredPermission } from '../decorators/require-permission.decorator';
 import { JwtPayload } from '../interfaces/jwt-payload.interface';
+import { ModuleName } from '@prisma/client';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -42,17 +43,39 @@ export class PermissionsGuard implements CanActivate {
       );
     }
 
-    // STEP 3: if role scope is OWN_BRANCH, verify resource branch matches staff branch
     const role = await this.prisma.role.findUnique({ where: { id: user.roleId } });
+
+    // STEP 2.5: Restrict global-only modules (Business Settings, CMS, Third Party Config) to GLOBAL scope
+    const GLOBAL_ONLY_MODULES: ModuleName[] = [
+      ModuleName.BUSINESS_SETTINGS,
+      ModuleName.CMS,
+      ModuleName.THIRD_PARTY_CONFIG,
+    ];
+    if (GLOBAL_ONLY_MODULES.includes(required.module) && role?.scope !== 'GLOBAL') {
+      throw new ForbiddenException(
+        'Access restricted: Only Global Administrators can access or modify system-wide settings.',
+      );
+    }
     if (role?.scope === 'OWN_BRANCH' && required.branchParam) {
       const targetBranchId =
         request.params?.[required.branchParam] ??
         request.body?.[required.branchParam] ??
         request.query?.[required.branchParam];
       if (targetBranchId && targetBranchId !== user.branchId) {
-        throw new ForbiddenException(
-          'You can only access data belonging to your own branch.',
-        );
+        // Check if role has explicit RoleBranchPermission with canAccess: true
+        const branchPerm = await this.prisma.roleBranchPermission.findUnique({
+          where: {
+            roleId_branchId: {
+              roleId: user.roleId,
+              branchId: targetBranchId,
+            },
+          },
+        });
+        if (!branchPerm || !branchPerm.canAccess) {
+          throw new ForbiddenException(
+            'You can only access data belonging to your own branch or explicitly authorized branches.',
+          );
+        }
       }
     }
     // OWN_DATA scope (e.g. Customer Service seeing only tickets assigned to them)

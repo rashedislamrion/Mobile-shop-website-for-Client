@@ -2,9 +2,13 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateStockAdjustmentDto } from './dto/create-stock-adjustment.dto';
+import {
+  CreateStockAdjustmentDto,
+  CreateBatchStockAdjustmentDto,
+} from './dto/create-stock-adjustment.dto';
 import { Prisma, StockAdjustmentType } from '@prisma/client';
 import { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
 
@@ -259,6 +263,142 @@ export class StockAdjustmentService {
           },
         },
       });
+    });
+  }
+
+  async createBatch(dto: CreateBatchStockAdjustmentDto, user?: JwtPayload) {
+    const branchId = (await this.resolveBranchId(dto.branchId)) || dto.branchId;
+    const branch = await this.prisma.branch.findUnique({ where: { id: branchId } });
+    if (!branch) throw new NotFoundException(`Branch not found.`);
+
+    if (!dto.items || dto.items.length === 0) {
+      throw new BadRequestException(`At least one adjustment item is required in the batch.`);
+    }
+
+    // Resolve adjustedBy staff
+    let adjustedById = user?.sub;
+    if (!adjustedById || user?.userType !== 'STAFF') {
+      const firstStaff = await this.prisma.staff.findFirst({ select: { id: true } });
+      if (!firstStaff) throw new BadRequestException(`No staff record found to author adjustment.`);
+      adjustedById = firstStaff.id;
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const createdAdjustments: any[] = [];
+
+      for (let i = 0; i < dto.items.length; i++) {
+        const item = dto.items[i];
+        const quantity = Number(item.quantity) || 0;
+        if (quantity <= 0) {
+          throw new BadRequestException(
+            `Item #${i + 1} has invalid quantity (${item.quantity}). Quantity must be at least 1.`,
+          );
+        }
+
+        // Look up product & variant fresh from database inside transaction
+        const product = await tx.product.findUnique({
+          where: { id: item.productId },
+          include: { variants: true },
+        });
+        if (!product) {
+          throw new NotFoundException(`Product with ID "${item.productId}" not found.`);
+        }
+
+        let targetVariant = item.variantId
+          ? product.variants.find((v) => v.id === item.variantId)
+          : product.variants[0];
+
+        if (!targetVariant && product.variants.length > 0) {
+          targetVariant = product.variants[0];
+        }
+
+        if (!targetVariant) {
+          throw new BadRequestException(`No variant found for product "${product.name}".`);
+        }
+
+        const currentStock = Number(targetVariant.stock || 0);
+        let quantityChange = 0;
+        let stockAfter = currentStock;
+
+        if (item.type === StockAdjustmentType.INCREASE) {
+          quantityChange = quantity;
+          stockAfter = Number(currentStock) + Number(quantity);
+        } else if (item.type === StockAdjustmentType.DECREASE) {
+          if (currentStock < quantity) {
+            throw new ConflictException(
+              `Insufficient stock for "${product.name}" (${targetVariant.sku || 'N/A'}). Current stock: ${currentStock}, requested reduction: ${quantity}. Entire batch rejected.`,
+            );
+          }
+          quantityChange = -quantity;
+          stockAfter = Number(currentStock) - Number(quantity);
+        } else if (item.type === StockAdjustmentType.RECOUNT) {
+          quantityChange = Number(quantity) - Number(currentStock);
+          stockAfter = Number(quantity);
+        }
+
+        const referenceNo = `ADJ-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
+
+        // Update variant stock atomically
+        await tx.productVariant.update({
+          where: { id: targetVariant.id },
+          data: { stock: stockAfter },
+        });
+
+        // Create StockAdjustment record
+        const adj = await tx.stockAdjustment.create({
+          data: {
+            referenceNo,
+            productId: product.id,
+            variantId: targetVariant.id,
+            branchId: branch.id,
+            type: item.type,
+            quantityChange,
+            stockBefore: currentStock,
+            stockAfter,
+            reason: dto.reason,
+            notes: dto.notes || null,
+            adjustedById,
+          },
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                regularPrice: true,
+                images: { take: 1, select: { url: true } },
+              },
+            },
+            variant: {
+              select: {
+                id: true,
+                sku: true,
+                color: true,
+                quality: true,
+                stock: true,
+                price: true,
+              },
+            },
+            branch: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+              },
+            },
+            adjustedBy: {
+              select: {
+                id: true,
+                name: true,
+                employeeId: true,
+              },
+            },
+          },
+        });
+
+        createdAdjustments.push(adj);
+      }
+
+      return createdAdjustments;
     });
   }
 }

@@ -44,7 +44,7 @@ export default function PurchaseOrderViewPage() {
       const map: Record<string, number> = {};
       (res?.items || []).forEach((item: any) => {
         const remaining = Math.max(0, item.quantityOrdered - item.quantityReceived);
-        map[item.variantId] = remaining;
+        map[item.id] = remaining;
       });
       setReceivedMap(map);
     } catch (err: any) {
@@ -62,8 +62,8 @@ export default function PurchaseOrderViewPage() {
     try {
       setIsReceiving(true);
       const itemsPayload = Object.entries(receivedMap)
-        .map(([variantId, qty]) => ({
-          variantId,
+        .map(([itemId, qty]) => ({
+          purchaseOrderItemId: itemId,
           quantityReceived: Number(qty),
         }))
         .filter((i) => i.quantityReceived > 0);
@@ -263,11 +263,11 @@ export default function PurchaseOrderViewPage() {
                         type="number"
                         min={0}
                         max={remaining}
-                        value={receivedMap[item.variantId] || 0}
+                        value={receivedMap[item.id] || 0}
                         onChange={(e) =>
                           setReceivedMap({
                             ...receivedMap,
-                            [item.variantId]: Number(e.target.value),
+                            [item.id]: Number(e.target.value),
                           })
                         }
                         className="h-8 w-24 text-right"

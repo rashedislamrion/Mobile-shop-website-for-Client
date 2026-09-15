@@ -116,6 +116,9 @@ export function Header() {
                 </Accordion>
                 <div className="flex flex-col gap-3 mt-2 text-sm font-semibold text-slate-700">
                   <Link href="/category/all" className="hover:text-primary py-1">All Products</Link>
+                  <Link href="/phones" className="hover:text-primary py-1 flex items-center gap-2 font-bold text-emerald-600">
+                    <Smartphone className="w-4 h-4" /> Phones
+                  </Link>
                   {headerMenus.map((m) => (
                     <Link key={m.id} href={m.linkValue} className="hover:text-primary py-1">{m.label}</Link>
                   ))}
@@ -246,6 +249,9 @@ export function Header() {
 
           <nav className="flex items-center gap-8 text-sm font-semibold text-slate-600">
             <Link href="/category/all" className="hover:text-primary transition-colors">All Products</Link>
+            <Link href="/phones" className="hover:text-primary transition-colors flex items-center gap-1.5 font-bold text-emerald-600">
+              <Smartphone className="w-4 h-4" /> Phones
+            </Link>
             {headerMenus.length > 0 ? (
               headerMenus.map((m) => (
                 <Link key={m.id} href={m.linkValue} target={m.openInNewTab ? "_blank" : undefined} className="hover:text-primary transition-colors">

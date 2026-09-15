@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
 import { DataTable, ActionDropdown } from "@/components/admin/DataTable";
-import { FilterBar } from "@/components/admin/FilterBar";
-import { FilterConfig, TableAction } from "@/types/table";
+import { TableAction } from "@/types/table";
 import { ColumnDef } from "@tanstack/react-table";
 import { Plus, Edit, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -24,48 +23,51 @@ interface PurposeRecord {
   _count?: { transactions: number };
 }
 
+// Color palette for initial-letter circular badge
+const BADGE_COLORS = [
+  "bg-blue-100 text-blue-700 border-blue-200",
+  "bg-emerald-100 text-emerald-700 border-emerald-200",
+  "bg-purple-100 text-purple-700 border-purple-200",
+  "bg-amber-100 text-amber-800 border-amber-200",
+  "bg-pink-100 text-pink-700 border-pink-200",
+  "bg-teal-100 text-teal-700 border-teal-200",
+];
+
+function getBadgeColor(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return BADGE_COLORS[Math.abs(hash) % BADGE_COLORS.length];
+}
+
 export default function PurposePage() {
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
   const [data, setData] = useState<PurposeRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filters, setFilters] = useState<Record<string, unknown>>({});
-  
+
   // Dialog State
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingPurpose, setEditingPurpose] = useState<PurposeRecord | null>(null);
-  const [formData, setFormData] = useState({
-    name: "",
-    category: "EXPENSE" as "INCOME" | "EXPENSE",
-  });
+  const [name, setName] = useState("");
 
   useEffect(() => {
-    setTitle("Wallet Purpose");
+    setTitle("Purposes");
     setBadge("Accounting");
-    setDateFilter(""); 
+    setDateFilter("");
   }, [setTitle, setBadge, setDateFilter]);
 
   const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
       const res = await apiGet<PurposeRecord[]>("/purposes");
-      let list = Array.isArray(res) ? res : [];
-
-      if (filters.category) {
-        list = list.filter((p) => p.category === filters.category);
-      }
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase().trim();
-        list = list.filter((p) => p.name.toLowerCase().includes(q));
-      }
-
-      setData(list);
+      setData(Array.isArray(res) ? res : []);
     } catch (err: any) {
       toast.error(err.message || "Failed to load purposes");
     } finally {
       setIsLoading(false);
     }
-  }, [filters, searchQuery]);
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -74,37 +76,30 @@ export default function PurposePage() {
   const handleOpenDialog = (purpose?: PurposeRecord) => {
     if (purpose) {
       setEditingPurpose(purpose);
-      setFormData({
-        name: purpose.name,
-        category: purpose.category,
-      });
+      setName(purpose.name);
     } else {
       setEditingPurpose(null);
-      setFormData({
-        name: "",
-        category: "EXPENSE",
-      });
+      setName("");
     }
     setDialogOpen(true);
   };
 
   const handleSave = async () => {
-    if (!formData.name.trim()) {
+    if (!name.trim()) {
       toast.error("Please enter a purpose name");
       return;
     }
-    
+
     try {
       if (editingPurpose) {
         await apiPatch(`/purposes/${editingPurpose.id}`, {
-          name: formData.name.trim(),
-          category: formData.category,
+          name: name.trim(),
         });
         toast.success("Purpose updated successfully");
       } else {
         await apiPost("/purposes", {
-          name: formData.name.trim(),
-          category: formData.category,
+          name: name.trim(),
+          category: "EXPENSE",
         });
         toast.success("Purpose created successfully");
       }
@@ -126,18 +121,6 @@ export default function PurposePage() {
     }
   };
 
-  const filterConfigs: FilterConfig[] = useMemo(() => [
-    {
-      type: "select",
-      label: "Category",
-      key: "category",
-      options: [
-        { label: "Expense", value: "EXPENSE" },
-        { label: "Income", value: "INCOME" },
-      ],
-    },
-  ], []);
-
   const createActions = (): TableAction[] => [
     {
       label: "Edit",
@@ -146,7 +129,7 @@ export default function PurposePage() {
     },
     {
       label: "Delete",
-      icon: <Trash2 className="w-4 h-4 text-red-500" />,
+      icon: <Trash2 className="w-4 h-4 text-rose-500" />,
       variant: "destructive",
       onClick: (row) => handleDelete(row.id),
     },
@@ -154,40 +137,36 @@ export default function PurposePage() {
 
   const columns: ColumnDef<PurposeRecord>[] = [
     {
-      accessorKey: "name",
-      header: "Purpose Name",
+      id: "sl",
+      header: "SL",
       cell: ({ row }) => (
-        <span className="font-semibold text-slate-800 text-sm">
-          {row.original.name}
+        <span className="font-semibold text-slate-500 text-xs">
+          {row.index + 1}
         </span>
       ),
     },
     {
-      accessorKey: "category",
-      header: "Category",
+      accessorKey: "name",
+      header: "NAME",
       cell: ({ row }) => {
-        const isIncome = row.original.category === "INCOME";
+        const initialLetter = (row.original.name || "P").trim().charAt(0).toUpperCase();
+        const colorClass = getBadgeColor(row.original.name);
+
         return (
-          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-            isIncome ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
-          }`}>
-            {isIncome ? "Income" : "Expense"}
-          </span>
+          <div className="flex items-center gap-3">
+            <div className={`w-8 h-8 rounded-full border flex items-center justify-center font-bold text-xs shrink-0 ${colorClass}`}>
+              {initialLetter}
+            </div>
+            <span className="font-bold text-slate-800 text-xs">
+              {row.original.name}
+            </span>
+          </div>
         );
       },
     },
     {
-      accessorKey: "usageCount",
-      header: "Transaction Usage",
-      cell: ({ row }) => (
-        <span className="text-slate-600 font-medium text-sm">
-          {row.original._count?.transactions || 0} times
-        </span>
-      ),
-    },
-    {
       id: "actions",
-      header: "Action",
+      header: "ACTION",
       cell: ({ row }) => (
         <div className="flex justify-end">
           <ActionDropdown actions={createActions()} rowData={row.original} />
@@ -198,78 +177,56 @@ export default function PurposePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200">
+      <div className="flex justify-between items-center bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-          <h2 className="text-lg font-bold text-slate-800">Transaction Purposes</h2>
-          <p className="text-xs text-slate-500">Categories classifying cash-flow and bank movements</p>
+          <h2 className="text-lg font-bold text-slate-900">Purposes</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Classification tags for deposits and fund allocations</p>
         </div>
         <button
           onClick={() => handleOpenDialog()}
-          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs transition-colors shadow-sm"
         >
-          <Plus className="w-4 h-4" /> Add Purpose
+          <Plus className="w-4 h-4" /> Create New
         </button>
       </div>
 
-      <FilterBar 
-        searchPlaceholder="Search purpose name..."
-        filters={filterConfigs}
-        onSearchChange={(val) => setSearchQuery(val)}
-        onFilterChange={(key, val) => setFilters((prev) => ({ ...prev, [key]: val }))}
-        onReset={() => {
-          setSearchQuery("");
-          setFilters({});
-        }}
-      />
+      <DataTable columns={columns} data={data} pageSize={10} />
 
-      <DataTable 
-        columns={columns} 
-        data={data} 
-        pageSize={10}
-      />
-
-      {/* Add / Edit Dialog */}
+      {/* Create / Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[420px] rounded-2xl p-6">
           <DialogHeader>
-            <DialogTitle>{editingPurpose ? "Edit Purpose" : "Add New Purpose"}</DialogTitle>
+            <DialogTitle className="text-base font-bold text-slate-900">
+              {editingPurpose ? "Edit Purpose" : "Create Purpose"}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-3">
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1.5">Purpose Name *</label>
+              <label className="text-xs font-bold text-slate-700 block mb-1">
+                Purpose Name *
+              </label>
               <Input
-                placeholder="e.g. Courier Charge, Salary Payout"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="e.g. B2B, Bank Withdrawal, Balance Adjustment"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="h-10 text-xs font-medium"
               />
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1.5">Category *</label>
-              <select
-                value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value as any })}
-                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm"
-              >
-                <option value="EXPENSE">Expense</option>
-                <option value="INCOME">Income</option>
-              </select>
             </div>
 
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
               <button
                 type="button"
                 onClick={() => setDialogOpen(false)}
-                className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 text-slate-700"
+                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-medium hover:bg-slate-50 text-slate-700"
               >
-                Cancel
+                Close
               </button>
               <button
                 type="button"
                 onClick={handleSave}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium"
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm"
               >
-                {editingPurpose ? "Save Changes" : "Create Purpose"}
+                Submit
               </button>
             </div>
           </div>

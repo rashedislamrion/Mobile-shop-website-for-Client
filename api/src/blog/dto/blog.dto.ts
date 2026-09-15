@@ -7,6 +7,12 @@ import {
 } from 'class-validator';
 import { ContentStatus } from '@prisma/client';
 
+export class CreateBlogCategoryDto {
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+}
+
 export class CreateBlogDto {
   @IsString()
   @IsNotEmpty()
@@ -17,8 +23,8 @@ export class CreateBlogDto {
   slug?: string;
 
   @IsString()
-  @IsNotEmpty()
-  excerpt: string;
+  @IsOptional()
+  excerpt?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -27,6 +33,23 @@ export class CreateBlogDto {
   @IsString()
   @IsOptional()
   featuredImage?: string;
+
+  @IsString()
+  @IsOptional()
+  coverImage?: string;
+
+  @IsString()
+  @IsOptional()
+  thumbnailUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  categoryId?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  tags?: string[];
 
   @IsString()
   @IsOptional()
@@ -81,6 +104,14 @@ export class UpdateBlogDto {
 
   @IsString()
   @IsOptional()
+  coverImage?: string;
+
+  @IsString()
+  @IsOptional()
+  thumbnailUrl?: string;
+
+  @IsString()
+  @IsOptional()
   authorId?: string;
 
   @IsEnum(ContentStatus)
@@ -107,4 +138,13 @@ export class UpdateBlogDto {
   @IsString({ each: true })
   @IsOptional()
   categoryTags?: string[];
+
+  @IsString()
+  @IsOptional()
+  categoryId?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  tags?: string[];
 }

@@ -10,7 +10,14 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { MenuService } from './menu.service';
-import { CreateMenuItemDto, UpdateMenuItemDto, ReorderMenuItemsDto } from './dto/menu.dto';
+import {
+  AddMenuBuilderItemsDto,
+  CreateMenuItemDto,
+  ReorderMenuBuilderDto,
+  ReorderMenuItemsDto,
+  UpdateMenuBuilderItemDto,
+  UpdateMenuItemDto,
+} from './dto/menu.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
@@ -21,6 +28,52 @@ import { MenuType, ModuleName, PermissionAction, StaffStatus } from '@prisma/cli
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class MenuController {
   constructor(private readonly menuService: MenuService) {}
+
+  // ============================= BUILDER ROUTES =============================
+
+  @Get('builder')
+  @RequirePermission({ module: ModuleName.CMS, action: PermissionAction.READ })
+  getBuilderData() {
+    return this.menuService.getBuilderData();
+  }
+
+  @Post('builder/add')
+  @RequirePermission({ module: ModuleName.CMS, action: PermissionAction.CREATE })
+  addBuilderItems(@Body() dto: AddMenuBuilderItemsDto) {
+    return this.menuService.addBuilderItems(dto);
+  }
+
+  @Patch('builder/reorder')
+  @RequirePermission({ module: ModuleName.CMS, action: PermissionAction.UPDATE })
+  reorderBuilderItems(@Body() dto: ReorderMenuBuilderDto) {
+    return this.menuService.reorderBuilderItems(dto);
+  }
+
+  @Patch('builder/:id/remove')
+  @RequirePermission({ module: ModuleName.CMS, action: PermissionAction.UPDATE })
+  removeBuilderItem(@Param('id') id: string) {
+    return this.menuService.removeBuilderItem(id);
+  }
+
+  @Patch('builder/:id/restore')
+  @RequirePermission({ module: ModuleName.CMS, action: PermissionAction.UPDATE })
+  restoreBuilderItem(@Param('id') id: string) {
+    return this.menuService.restoreBuilderItem(id);
+  }
+
+  @Patch('builder/:id')
+  @RequirePermission({ module: ModuleName.CMS, action: PermissionAction.UPDATE })
+  updateBuilderItem(@Param('id') id: string, @Body() dto: UpdateMenuBuilderItemDto) {
+    return this.menuService.updateBuilderItem(id, dto);
+  }
+
+  @Delete('builder/:id')
+  @RequirePermission({ module: ModuleName.CMS, action: PermissionAction.DELETE })
+  deleteBuilderItem(@Param('id') id: string) {
+    return this.menuService.deleteBuilderItem(id);
+  }
+
+  // ============================= GENERAL / LEGACY ROUTES =============================
 
   @Public()
   @Get()

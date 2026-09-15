@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsEnum,
   IsNotEmpty,
   IsNumber,
@@ -17,6 +18,22 @@ export class CreateWalletTypeDto {
   @IsEnum(WalletKind)
   @IsNotEmpty()
   kind: WalletKind;
+
+  @IsString()
+  @IsOptional()
+  accountNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  icon?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean = true;
+
+  @IsString()
+  @IsOptional()
+  branchId?: string;
 
   @IsNumber()
   @IsOptional()
@@ -37,6 +54,22 @@ export class UpdateWalletTypeDto {
   @IsEnum(WalletKind)
   @IsOptional()
   kind?: WalletKind;
+
+  @IsString()
+  @IsOptional()
+  accountNumber?: string;
+
+  @IsString()
+  @IsOptional()
+  icon?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
+
+  @IsString()
+  @IsOptional()
+  branchId?: string;
 
   @IsEnum(StaffStatus)
   @IsOptional()
@@ -83,5 +116,56 @@ export class CreateWalletTransactionDto {
 
   @IsString()
   @IsOptional()
+  branchId?: string;
+
+  @IsString()
+  @IsOptional()
   note?: string;
 }
+
+export class CreateTransferDto {
+  @IsString()
+  @IsNotEmpty()
+  sourceWalletId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  targetWalletId: string;
+
+  @IsString()
+  @IsOptional()
+  targetBranchId?: string;
+
+  @IsNumber()
+  @Min(0.01)
+  @Type(() => Number)
+  amount: number;
+
+  @IsString()
+  @IsOptional()
+  note?: string;
+}
+
+export class CreateStaffPaymentDto {
+  @IsString()
+  @IsNotEmpty()
+  staffId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  walletTypeId: string;
+
+  @IsNumber()
+  @Min(0.01)
+  @Type(() => Number)
+  amount: number;
+
+  @IsString()
+  @IsNotEmpty()
+  payType: string; // SALARY, ALLOWANCE, BONUS, OTHER
+
+  @IsString()
+  @IsOptional()
+  note?: string;
+}
+

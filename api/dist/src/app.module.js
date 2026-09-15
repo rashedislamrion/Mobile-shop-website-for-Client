@@ -49,9 +49,16 @@ const ticket_issue_type_module_1 = require("./ticket-issue-type/ticket-issue-typ
 const support_ticket_module_1 = require("./support-ticket/support-ticket.module");
 const help_note_module_1 = require("./help-note/help-note.module");
 const business_settings_module_1 = require("./business-settings/business-settings.module");
+const currency_module_1 = require("./currency/currency.module");
+const delivery_charge_module_1 = require("./delivery-charge/delivery-charge.module");
 const third_party_config_module_1 = require("./third-party-config/third-party-config.module");
 const payment_module_1 = require("./payment/payment.module");
 const stock_adjustment_module_1 = require("./stock-adjustment/stock-adjustment.module");
+const wasted_product_module_1 = require("./wasted-product/wasted-product.module");
+const customer_module_1 = require("./customer/customer.module");
+const pos_module_1 = require("./pos/pos.module");
+const phone_unit_module_1 = require("./phone-unit/phone-unit.module");
+const service_lookup_module_1 = require("./service-lookup/service-lookup.module");
 const throttler_1 = require("@nestjs/throttler");
 const core_1 = require("@nestjs/core");
 const jwt_auth_guard_1 = require("./auth/guards/jwt-auth.guard");
@@ -105,9 +112,16 @@ exports.AppModule = AppModule = __decorate([
             support_ticket_module_1.SupportTicketModule,
             help_note_module_1.HelpNoteModule,
             business_settings_module_1.BusinessSettingsModule,
+            currency_module_1.CurrencyModule,
+            delivery_charge_module_1.DeliveryChargeModule,
             third_party_config_module_1.ThirdPartyConfigModule,
             payment_module_1.PaymentModule,
             stock_adjustment_module_1.StockAdjustmentModule,
+            wasted_product_module_1.WastedProductModule,
+            customer_module_1.CustomerModule,
+            pos_module_1.PosModule,
+            phone_unit_module_1.PhoneUnitModule,
+            service_lookup_module_1.ServiceLookupModule,
         ],
         controllers: [app_controller_1.AppController],
         providers: [

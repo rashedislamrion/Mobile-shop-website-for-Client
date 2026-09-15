@@ -14,6 +14,7 @@ const common_1 = require("@nestjs/common");
 const core_1 = require("@nestjs/core");
 const prisma_service_1 = require("../../prisma/prisma.service");
 const require_permission_decorator_1 = require("../decorators/require-permission.decorator");
+const client_1 = require("@prisma/client");
 let PermissionsGuard = class PermissionsGuard {
     reflector;
     prisma;
@@ -43,12 +44,30 @@ let PermissionsGuard = class PermissionsGuard {
             throw new common_1.ForbiddenException(`Your role does not have ${required.action} permission on ${required.module}.`);
         }
         const role = await this.prisma.role.findUnique({ where: { id: user.roleId } });
+        const GLOBAL_ONLY_MODULES = [
+            client_1.ModuleName.BUSINESS_SETTINGS,
+            client_1.ModuleName.CMS,
+            client_1.ModuleName.THIRD_PARTY_CONFIG,
+        ];
+        if (GLOBAL_ONLY_MODULES.includes(required.module) && role?.scope !== 'GLOBAL') {
+            throw new common_1.ForbiddenException('Access restricted: Only Global Administrators can access or modify system-wide settings.');
+        }
         if (role?.scope === 'OWN_BRANCH' && required.branchParam) {
             const targetBranchId = request.params?.[required.branchParam] ??
                 request.body?.[required.branchParam] ??
                 request.query?.[required.branchParam];
             if (targetBranchId && targetBranchId !== user.branchId) {
-                throw new common_1.ForbiddenException('You can only access data belonging to your own branch.');
+                const branchPerm = await this.prisma.roleBranchPermission.findUnique({
+                    where: {
+                        roleId_branchId: {
+                            roleId: user.roleId,
+                            branchId: targetBranchId,
+                        },
+                    },
+                });
+                if (!branchPerm || !branchPerm.canAccess) {
+                    throw new common_1.ForbiddenException('You can only access data belonging to your own branch or explicitly authorized branches.');
+                }
             }
         }
         return true;

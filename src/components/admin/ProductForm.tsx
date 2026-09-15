@@ -6,13 +6,26 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useFieldArray } from "react-hook-form";
 import * as z from "zod";
 import { toast } from "sonner";
-import { 
-  Plus, X, UploadCloud, ChevronDown, Check, Loader2, Image as ImageIcon 
+import {
+  Save,
+  RotateCcw,
+  Plus,
+  Trash2,
+  UploadCloud,
+  X,
+  Info,
+  Layers,
+  Sparkles,
+  Package,
+  Search,
+  CheckCircle2,
+  Tag,
+  Eye,
+  FileText,
 } from "lucide-react";
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -20,41 +33,52 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { apiGet, apiPost, apiPatch, getImageUrl } from "@/lib/api-client";
+import { CategoryCheckboxTree } from "./CategoryCheckboxTree";
+import { VariationsGenerator, GeneratedVariant } from "./VariationsGenerator";
 
 const formSchema = z.object({
   name: z.string().min(2, "Product name is required"),
-  slug: z.string().min(2, "Slug is required"),
-  shortDescription: z.string().optional(),
-  fullDescription: z.string().optional(),
-  variants: z.array(z.object({
-    id: z.string().optional(),
-    color: z.string().optional(),
-    quality: z.string().optional(),
-    price: z.coerce.number().min(0, "Price must be positive"),
-    stock: z.coerce.number().min(0, "Stock must be positive"),
-    sku: z.string().optional(),
-  })),
-  price: z.coerce.number().min(0, "Regular price must be non-negative"),
+  slug: z.string().optional(),
+  code: z.string().optional(),
+  brandId: z.string().optional(),
+  seriesId: z.string().optional(),
+  unitId: z.string().optional(),
+  productType: z.string().default("Spare Parts"),
+  condition: z.enum(["NEW", "USED"]).optional().nullable(),
+  buyingPrice: z.coerce.number().min(0).default(0),
+  regularPrice: z.coerce.number().min(0, "Selling price is required").default(0),
   salePrice: z.coerce.number().optional().nullable(),
-  costPrice: z.coerce.number().optional().nullable(),
-  specifications: z.array(z.object({
-    id: z.string().optional(),
-    label: z.string().min(1, "Label is required"),
-    value: z.string().min(1, "Value is required"),
-  })),
+  wholesalePrice: z.coerce.number().min(0).default(0),
+  minOrderQty: z.coerce.number().min(1).default(1),
+  isHomepage: z.boolean().default(false),
+  isNewest: z.boolean().default(false),
+  isFeatured: z.boolean().default(false),
+  isBestDeal: z.boolean().default(false),
+  status: z.enum(["DRAFT", "ACTIVE", "OUT_OF_STOCK"]).default("ACTIVE"),
+  shortDescription: z.string().optional(),
+  description: z.string().optional(),
+  warranty: z.string().optional(),
   metaTitle: z.string().optional(),
   metaDescription: z.string().optional(),
   metaKeywords: z.string().optional(),
-  status: z.enum(["DRAFT", "ACTIVE", "OUT_OF_STOCK"]),
-  categoryId: z.string().min(1, "Category is required"),
-  brandId: z.string().optional(),
+  ogImageUrl: z.string().optional(),
 });
 
-type ProductFormValues = z.infer<typeof formSchema>;
+type FormValues = z.infer<typeof formSchema>;
 
 export interface ExistingProductData {
   id: string;
+  code?: string | null;
   name: string;
   slug: string;
   shortDescription?: string | null;
@@ -62,14 +86,38 @@ export interface ExistingProductData {
   regularPrice: number | string;
   salePrice?: number | string | null;
   costPrice?: number | string | null;
+  buyingPrice?: number | string | null;
+  wholesalePrice?: number | string | null;
+  minOrderQty?: number | null;
+  warranty?: string | null;
+  productType?: string | null;
+  condition?: string | null;
+  isHomepage?: boolean;
+  isNewest?: boolean;
+  isFeatured?: boolean;
+  isBestDeal?: boolean;
   status: "DRAFT" | "ACTIVE" | "OUT_OF_STOCK";
   categoryId: string;
   brandId?: string | null;
+  seriesId?: string | null;
+  unitId?: string | null;
   metaTitle?: string | null;
   metaDescription?: string | null;
   metaKeywords?: string | null;
+  ogImageUrl?: string | null;
   images?: Array<{ id: string; url: string; sortOrder?: number }>;
-  variants?: Array<{ id?: string; color?: string | null; quality?: string | null; price: number | string; stock: number; sku?: string }>;
+  variants?: Array<{
+    id?: string;
+    color?: string | null;
+    quality?: string | null;
+    price: number | string;
+    stock: number;
+    sku?: string;
+    buyingPrice?: number | string | null;
+    wholesalePrice?: number | string | null;
+    offerPrice?: number | string | null;
+    attributes?: any;
+  }>;
   specifications?: Array<{ id?: string; label: string; value: string }>;
 }
 
@@ -79,11 +127,45 @@ interface ProductFormProps {
   productId?: string;
 }
 
+type TabKey = "product-info" | "general-info" | "variations" | "add-ons" | "seo";
+
 export function ProductForm({ initialData, isEdit, productId }: ProductFormProps) {
   const router = useRouter();
-  const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
+  const [activeTab, setActiveTab] = useState<TabKey>("product-info");
+
+  // Metadata dropdowns
   const [brands, setBrands] = useState<Array<{ id: string; name: string }>>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [seriesList, setSeriesList] = useState<Array<{ id: string; name: string; brandId?: string }>>([]);
+  const [units, setUnits] = useState<Array<{ id: string; name: string; shortCode?: string }>>([]);
+
+  // Category selection
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>(
+    initialData?.categoryId ? [initialData.categoryId] : []
+  );
+
+  // Variations
+  const [variants, setVariants] = useState<GeneratedVariant[]>(
+    initialData?.variants?.map((v) => ({
+      id: v.id,
+      sku: v.sku || "",
+      color: v.color || null,
+      quality: v.quality || null,
+      attributes: typeof v.attributes === "object" && v.attributes !== null ? v.attributes : {},
+      buyingPrice: Number(v.buyingPrice || initialData.buyingPrice || 0),
+      price: Number(v.price || initialData.regularPrice || 0),
+      wholesalePrice: Number(v.wholesalePrice || initialData.wholesalePrice || 0),
+      offerPrice: v.offerPrice ? Number(v.offerPrice) : null,
+      stock: Number(v.stock || 0),
+    })) || []
+  );
+
+  // Specifications
+  const [specifications, setSpecifications] = useState<Array<{ label: string; value: string }>>(
+    initialData?.specifications?.map((s) => ({ label: s.label, value: s.value })) || []
+  );
+
+  // Optional Add-ons
+  const [addOns, setAddOns] = useState<Array<{ title: string; price: number; note: string }>>([]);
 
   // Images state
   const [existingImages, setExistingImages] = useState<Array<{ id: string; url: string }>>(
@@ -91,623 +173,953 @@ export function ProductForm({ initialData, isEdit, productId }: ProductFormProps
   );
   const [newImageFiles, setNewImageFiles] = useState<File[]>([]);
   const [removedImageIds, setRemovedImageIds] = useState<string[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    // Fetch categories and brands for dropdowns
-    (async () => {
-      try {
-        const [cats, brs] = await Promise.all([
-          apiGet<any[]>("/categories"),
-          apiGet<any[]>("/brands"),
-        ]);
-        setCategories(cats || []);
-        setBrands(brs || []);
-      } catch (err) {
-        console.error("Failed to load categories/brands", err);
-      }
-    })();
-  }, []);
-
-  const form = useForm<ProductFormValues>({
+  const form = useForm<FormValues>({
     resolver: zodResolver(formSchema) as any,
     defaultValues: {
       name: initialData?.name || "",
       slug: initialData?.slug || "",
-      shortDescription: initialData?.shortDescription || "",
-      fullDescription: initialData?.description || "",
-      variants: initialData?.variants?.map(v => ({
-        id: v.id,
-        color: v.color || "",
-        quality: v.quality || "",
-        price: Number(v.price) || 0,
-        stock: Number(v.stock) || 0,
-        sku: v.sku || "",
-      })) || [],
-      price: Number(initialData?.regularPrice) || 0,
+      code: initialData?.code || "",
+      brandId: initialData?.brandId || "",
+      seriesId: initialData?.seriesId || "",
+      unitId: initialData?.unitId || "",
+      productType: initialData?.productType || "Spare Parts",
+      condition: (initialData?.condition as "NEW" | "USED") || "NEW",
+      buyingPrice: Number(initialData?.buyingPrice || 0),
+      regularPrice: Number(initialData?.regularPrice || 0),
       salePrice: initialData?.salePrice ? Number(initialData.salePrice) : null,
-      costPrice: initialData?.costPrice ? Number(initialData.costPrice) : null,
-      specifications: initialData?.specifications?.map(s => ({
-        id: s.id,
-        label: s.label,
-        value: s.value,
-      })) || [],
+      wholesalePrice: Number(initialData?.wholesalePrice || 0),
+      minOrderQty: Number(initialData?.minOrderQty || 1),
+      isHomepage: initialData?.isHomepage ?? false,
+      isNewest: initialData?.isNewest ?? false,
+      isFeatured: initialData?.isFeatured ?? false,
+      isBestDeal: initialData?.isBestDeal ?? false,
+      status: initialData?.status || "ACTIVE",
+      shortDescription: initialData?.shortDescription || "",
+      description: initialData?.description || "",
+      warranty: initialData?.warranty || "",
       metaTitle: initialData?.metaTitle || "",
       metaDescription: initialData?.metaDescription || "",
       metaKeywords: initialData?.metaKeywords || "",
-      status: (initialData?.status as any) || "DRAFT",
-      categoryId: initialData?.categoryId || "",
-      brandId: initialData?.brandId || "",
+      ogImageUrl: initialData?.ogImageUrl || "",
     },
   });
 
-  const { fields: variantFields, append: appendVariant, remove: removeVariant } = useFieldArray({
-    name: "variants",
-    control: form.control,
-  });
-
-  const { fields: specFields, append: appendSpec, remove: removeSpec } = useFieldArray({
-    name: "specifications",
-    control: form.control,
-  });
-
-  const watchPrice = form.watch("price");
-  const watchSalePrice = form.watch("salePrice");
+  const selectedBrandId = form.watch("brandId");
   const watchName = form.watch("name");
+  const watchBuyingPrice = form.watch("buyingPrice");
+  const watchSellingPrice = form.watch("regularPrice");
+  const watchWholesalePrice = form.watch("wholesalePrice");
+  const watchCode = form.watch("code");
+  const watchProductType = form.watch("productType");
+  const watchCondition = form.watch("condition") || "NEW";
+  const selectedBrandName = brands.find((b) => b.id === selectedBrandId)?.name || "";
 
-  // Auto-generate slug on typing name for new products
+  // Load brands, series, units
   useEffect(() => {
-    if (!isEdit && watchName) {
-      const generatedSlug = watchName
+    (async () => {
+      try {
+        const [brs, srs, uns] = await Promise.all([
+          apiGet<any[]>("/products/brands").catch(() => apiGet<any[]>("/brands")),
+          apiGet<any[]>("/series").catch(() => []),
+          apiGet<any[]>("/products/units").catch(() => apiGet<any[]>("/units")),
+        ]);
+        if (Array.isArray(brs)) setBrands(brs);
+        if (Array.isArray(srs)) setSeriesList(srs);
+        if (Array.isArray(uns)) setUnits(uns);
+      } catch (err) {
+        console.error("Failed to load metadata:", err);
+      }
+    })();
+  }, []);
+
+  // Filter series by brand
+  const filteredSeries = selectedBrandId
+    ? seriesList.filter((s) => s.brandId === selectedBrandId)
+    : seriesList;
+
+  // Auto-fill slug if empty
+  const handleNameBlur = () => {
+    const currentSlug = form.getValues("slug");
+    if (!currentSlug && watchName) {
+      const generated = watchName
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
-        .replace(/(^-|-$)+/g, "");
-      form.setValue("slug", generatedSlug, { shouldValidate: false });
+        .replace(/^-+|-+$/g, "");
+      form.setValue("slug", generated);
     }
-  }, [watchName, isEdit, form]);
+  };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Generate random SKU code
+  const handleGenerateCode = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const random = `SKU-${Math.floor(100000 + Math.random() * 900000)}`;
+    form.setValue("code", random);
+  };
+
+  // Image handlers
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const files = Array.from(e.target.files);
-      setNewImageFiles(prev => [...prev, ...files]);
+      const filesArray = Array.from(e.target.files);
+      setNewImageFiles((prev) => [...prev, ...filesArray]);
     }
   };
 
   const removeExistingImage = (id: string) => {
-    setExistingImages(prev => prev.filter(img => img.id !== id));
-    setRemovedImageIds(prev => [...prev, id]);
+    setExistingImages((prev) => prev.filter((img) => img.id !== id));
+    setRemovedImageIds((prev) => [...prev, id]);
   };
 
-  const removeNewImage = (index: number) => {
-    setNewImageFiles(prev => prev.filter((_, idx) => idx !== index));
+  const removeNewFile = (index: number) => {
+    setNewImageFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const onSubmit = async (values: ProductFormValues) => {
-    setIsSubmitting(true);
+  // Form submit handler
+  const onSubmit = async (values: FormValues) => {
+    if (selectedCategoryIds.length === 0) {
+      setActiveTab("product-info");
+      toast.error("Please select at least one Category from the tree.");
+      return;
+    }
+
     try {
+      setIsSubmitting(true);
       const formData = new FormData();
+
       formData.append("name", values.name);
-      formData.append("slug", values.slug);
-      if (values.shortDescription) formData.append("shortDescription", values.shortDescription);
-      if (values.fullDescription) formData.append("description", values.fullDescription);
-      formData.append("categoryId", values.categoryId);
+      formData.append("slug", values.slug || values.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+      if (values.code) formData.append("code", values.code);
+      formData.append("categoryId", selectedCategoryIds[0]);
+      formData.append("categoryIds", JSON.stringify(selectedCategoryIds));
+
       if (values.brandId) formData.append("brandId", values.brandId);
-      formData.append("regularPrice", String(values.price));
+      if (values.seriesId) formData.append("seriesId", values.seriesId);
+      if (values.unitId) formData.append("unitId", values.unitId);
+      formData.append("productType", values.productType);
+      if (values.condition) formData.append("condition", values.condition);
+
+      formData.append("buyingPrice", String(values.buyingPrice || 0));
+      formData.append("regularPrice", String(values.regularPrice || 0));
       if (values.salePrice) formData.append("salePrice", String(values.salePrice));
-      if (values.costPrice) formData.append("costPrice", String(values.costPrice));
+      formData.append("wholesalePrice", String(values.wholesalePrice || 0));
+      formData.append("minOrderQty", String(values.minOrderQty || 1));
+
+      formData.append("isHomepage", String(values.isHomepage));
+      formData.append("isNewest", String(values.isNewest));
+      formData.append("isFeatured", String(values.isFeatured));
+      formData.append("isBestDeal", String(values.isBestDeal));
       formData.append("status", values.status);
+
+      if (values.shortDescription) formData.append("shortDescription", values.shortDescription);
+      if (values.description) formData.append("description", values.description);
+      if (values.warranty) formData.append("warranty", values.warranty);
+
       if (values.metaTitle) formData.append("metaTitle", values.metaTitle);
       if (values.metaDescription) formData.append("metaDescription", values.metaDescription);
       if (values.metaKeywords) formData.append("metaKeywords", values.metaKeywords);
+      if (values.ogImageUrl) formData.append("ogImageUrl", values.ogImageUrl);
 
-      // JSON fields
-      if (values.variants && values.variants.length > 0) {
-        formData.append("variants", JSON.stringify(values.variants));
-      }
-      if (values.specifications && values.specifications.length > 0) {
-        formData.append("specifications", JSON.stringify(values.specifications));
-      }
+      // Add variants
+      formData.append("variants", JSON.stringify(variants));
 
-      if (removedImageIds.length > 0) {
-        formData.append("removedImageIds", JSON.stringify(removedImageIds));
-      }
+      // Add specifications
+      formData.append("specifications", JSON.stringify(specifications));
 
-      // Append image files
+      // Add new image files
       newImageFiles.forEach((file) => {
         formData.append("images", file);
       });
 
+      // Add removed image IDs if edit
+      if (isEdit && removedImageIds.length > 0) {
+        formData.append("removedImageIds", JSON.stringify(removedImageIds));
+      }
+
       if (isEdit && productId) {
         await apiPatch(`/products/${productId}`, formData);
-        toast.success(`Product "${values.name}" updated successfully!`);
+        toast.success("Product updated successfully!");
       } else {
         await apiPost("/products", formData);
-        toast.success(`Product "${values.name}" created successfully!`);
+        toast.success("Product created successfully!");
       }
 
       router.push("/admin/products");
+      router.refresh();
     } catch (err: any) {
+      console.error("Save product error:", err);
       toast.error(err.message || "Failed to save product");
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const tabs: Array<{ key: TabKey; label: string }> = [
+    { key: "product-info", label: "Product Info" },
+    { key: "general-info", label: "General Information" },
+    { key: "variations", label: "Variations" },
+    { key: "add-ons", label: "Optional Add-ons" },
+    { key: "seo", label: "SEO Information" },
+  ];
+
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col lg:flex-row gap-6 relative items-start">
-        
-        {/* LEFT COLUMN: Main Form Sections */}
-        <div className="w-full lg:w-2/3 space-y-6">
-          
-          {/* Basic Information */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-4">
-            <h3 className="font-semibold text-slate-800 text-lg mb-4">Basic Information</h3>
-            
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Product Name *</FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g. iPhone 13 Pro Max Display" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 pb-24">
+        {/* Pill-style Tab Bar */}
+        <div className="flex items-center gap-1.5 p-1.5 bg-slate-100 rounded-xl max-w-fit border border-slate-200 overflow-x-auto">
+          {tabs.map((tab) => {
+            const isActive = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setActiveTab(tab.key)}
+                className={`px-4 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  isActive
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/60"
+                }`}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
 
-            <FormField
-              control={form.control}
-              name="slug"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Slug *</FormLabel>
-                  <FormControl>
-                    <Input placeholder="iphone-13-pro-max-display" {...field} />
-                  </FormControl>
-                  <FormDescription>The URL friendly identifier for this product.</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+        {/* Tab 1: Product Info */}
+        {activeTab === "product-info" && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left / Main Column */}
+            <div className="lg:col-span-8 space-y-5">
+              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
+                <h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-3 flex items-center gap-2">
+                  <Package className="w-4 h-4 text-emerald-600" />
+                  Basic Product Information
+                </h3>
+
+                {/* Product Name */}
+                <FormField
+                  control={form.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs font-semibold text-slate-700">
+                        Product Name <span className="text-rose-500">*</span>
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="e.g. Samsung Galaxy S23 Ultra OLED Display with Frame"
+                          className="h-10 text-sm"
+                          {...field}
+                          onBlur={handleNameBlur}
+                        />
+                      </FormControl>
+                      <FormMessage className="text-xs" />
+                    </FormItem>
+                  )}
+                />
+
+                {/* Product Slug */}
+                <FormField
+                  control={form.control}
+                  name="slug"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-xs font-semibold text-slate-700">
+                        Product Slug
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="auto-generated-from-product-name"
+                          className="h-10 text-sm font-mono text-slate-600"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage className="text-xs" />
+                    </FormItem>
+                  )}
+                />
+
+                {/* Brand & Series */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="brandId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-semibold text-slate-700">
+                          Select Brand
+                        </FormLabel>
+                        <Select
+                          value={field.value || ""}
+                          onValueChange={(val) => {
+                            field.onChange(val);
+                            form.setValue("seriesId", "");
+                          }}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="h-10 text-sm">
+                              <SelectValue placeholder="Select Brand..." />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {brands.map((b) => (
+                              <SelectItem key={b.id} value={b.id}>
+                                {b.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage className="text-xs" />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="seriesId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-semibold text-slate-700">
+                          Select Series
+                        </FormLabel>
+                        <Select
+                          value={field.value || ""}
+                          onValueChange={field.onChange}
+                          disabled={!selectedBrandId || filteredSeries.length === 0}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="h-10 text-sm">
+                              <SelectValue
+                                placeholder={
+                                  !selectedBrandId
+                                    ? "Select brand first"
+                                    : filteredSeries.length === 0
+                                    ? "No series available"
+                                    : "Select Series..."
+                                }
+                              />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {filteredSeries.map((s) => (
+                              <SelectItem key={s.id} value={s.id}>
+                                {s.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage className="text-xs" />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                {/* Unit & Product SKU / Code */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="unitId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-semibold text-slate-700">
+                          Select Unit
+                        </FormLabel>
+                        <Select value={field.value || ""} onValueChange={field.onChange}>
+                          <FormControl>
+                            <SelectTrigger className="h-10 text-sm">
+                              <SelectValue placeholder="Select Unit (Pcs, Box, Set)..." />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {units.map((u) => (
+                              <SelectItem key={u.id} value={u.id}>
+                                {u.name} {u.shortCode ? `(${u.shortCode})` : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage className="text-xs" />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="code"
+                    render={({ field }) => (
+                      <FormItem>
+                        <div className="flex items-center justify-between">
+                          <FormLabel className="text-xs font-semibold text-slate-700">
+                            Product SKU / Code <span className="text-rose-500">*</span>
+                          </FormLabel>
+                          <button
+                            type="button"
+                            onClick={handleGenerateCode}
+                            className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 hover:underline"
+                          >
+                            Generate Code
+                          </button>
+                        </div>
+                        <FormControl>
+                          <Input
+                            placeholder="e.g. SKU-847291"
+                            className="h-10 text-sm font-mono"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage className="text-xs" />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                {/* Buying Price & Selling Price */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                  <FormField
+                    control={form.control}
+                    name="buyingPrice"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-semibold text-slate-700">
+                          Buying Price (৳)
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            placeholder="0.00"
+                            className="h-10 text-sm"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage className="text-xs" />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="regularPrice"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-semibold text-slate-700">
+                          Selling Price (৳) <span className="text-rose-500">*</span>
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            placeholder="0.00"
+                            className="h-10 text-sm font-medium text-emerald-700"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage className="text-xs" />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                {/* Discounted / Sale Price & Wholesale Price */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="salePrice"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-semibold text-slate-700">
+                          Discounted / Offer Price (৳)
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            placeholder="Optional discounted price"
+                            className="h-10 text-sm"
+                            value={field.value ?? ""}
+                            onChange={(e) => field.onChange(e.target.value ? Number(e.target.value) : null)}
+                          />
+                        </FormControl>
+                        <FormMessage className="text-xs" />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="wholesalePrice"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-semibold text-slate-700">
+                          Wholesale Price (৳)
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            placeholder="0.00"
+                            className="h-10 text-sm"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage className="text-xs" />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                {/* Min Order Qty / Homepage toggle / Product Type */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center pt-2">
+                  <FormField
+                    control={form.control}
+                    name="minOrderQty"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-semibold text-slate-700">
+                          Min Order Qty
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            className="h-10 text-sm"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage className="text-xs" />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="productType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-semibold text-slate-700">
+                          Product Type
+                        </FormLabel>
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <FormControl>
+                            <SelectTrigger className="h-10 text-sm">
+                              <SelectValue placeholder="Type..." />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="Phone">Mobile Phone (IMEI Tracked)</SelectItem>
+                            <SelectItem value="Spare Parts">Spare Parts</SelectItem>
+                            <SelectItem value="Gadgets">Gadgets</SelectItem>
+                            <SelectItem value="Accessories">Accessories</SelectItem>
+                            <SelectItem value="Tools">Repair Tools</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage className="text-xs" />
+                      </FormItem>
+                    )}
+                  />
+
+                  {watchProductType === "Phone" && (
+                    <FormField
+                      control={form.control}
+                      name="condition"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-xs font-semibold text-slate-700">
+                            Phone Condition <span className="text-rose-500">*</span>
+                          </FormLabel>
+                          <Select value={field.value || "NEW"} onValueChange={field.onChange}>
+                            <FormControl>
+                              <SelectTrigger className="h-10 text-sm">
+                                <SelectValue placeholder="Condition..." />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="NEW">New (Brand New / Sealed)</SelectItem>
+                              <SelectItem value="USED">Used / Second-hand</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage className="text-xs" />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+
+                  <FormField
+                    control={form.control}
+                    name="status"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="text-xs font-semibold text-slate-700">
+                          Catalog Status
+                        </FormLabel>
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <FormControl>
+                            <SelectTrigger className="h-10 text-sm">
+                              <SelectValue placeholder="Status..." />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="ACTIVE">Active (Live on Storefront)</SelectItem>
+                            <SelectItem value="DRAFT">Draft (Admin Only)</SelectItem>
+                            <SelectItem value="OUT_OF_STOCK">Out of Stock</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage className="text-xs" />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="isHomepage"
+                    render={({ field }) => (
+                      <FormItem className="flex items-center justify-between p-3 border border-slate-200 rounded-lg bg-slate-50 mt-5">
+                        <div className="space-y-0.5">
+                          <FormLabel className="text-xs font-semibold text-slate-700">
+                            Show on Homepage
+                          </FormLabel>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+
+              {/* Product Media Gallery */}
+              <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
+                <h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-3 flex items-center gap-2">
+                  <UploadCloud className="w-4 h-4 text-emerald-600" />
+                  Product Images
+                </h3>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {/* Existing Images */}
+                  {existingImages.map((img) => (
+                    <div key={img.id} className="relative group aspect-square rounded-lg border border-slate-200 overflow-hidden bg-slate-50">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={getImageUrl(img.url)} alt="Product" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => removeExistingImage(img.id)}
+                        className="absolute top-1 right-1 bg-rose-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+
+                  {/* New Uploads Preview */}
+                  {newImageFiles.map((file, idx) => (
+                    <div key={idx} className="relative group aspect-square rounded-lg border border-emerald-300 overflow-hidden bg-emerald-50">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={URL.createObjectURL(file)} alt="Preview" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => removeNewFile(idx)}
+                        className="absolute top-1 right-1 bg-rose-600 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+
+                  {/* Upload Box */}
+                  <label className="border-2 border-dashed border-slate-300 hover:border-emerald-500 rounded-lg aspect-square flex flex-col items-center justify-center p-3 text-center cursor-pointer transition-colors bg-slate-50/50 hover:bg-emerald-50/20">
+                    <UploadCloud className="w-6 h-6 text-slate-400 mb-1" />
+                    <span className="text-[11px] font-semibold text-slate-600">Upload Image</span>
+                    <span className="text-[10px] text-slate-400">PNG, JPG up to 5MB</span>
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleFileChange}
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column: Category Checkbox Tree */}
+            <div className="lg:col-span-4">
+              <CategoryCheckboxTree
+                selectedCategoryIds={selectedCategoryIds}
+                onChange={setSelectedCategoryIds}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Tab 2: General Information */}
+        {activeTab === "general-info" && (
+          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-5">
+            <h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-3 flex items-center gap-2">
+              <FileText className="w-4 h-4 text-emerald-600" />
+              General Details & Description
+            </h3>
 
             <FormField
               control={form.control}
               name="shortDescription"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Short Description</FormLabel>
+                  <FormLabel className="text-xs font-semibold text-slate-700">
+                    Short Summary / Teaser
+                  </FormLabel>
                   <FormControl>
-                    <Textarea placeholder="A brief summary of the product..." className="resize-none h-20" {...field} />
+                    <Input
+                      placeholder="Brief one-line product summary..."
+                      className="h-10 text-sm"
+                      {...field}
+                    />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage className="text-xs" />
                 </FormItem>
               )}
             />
 
             <FormField
               control={form.control}
-              name="fullDescription"
+              name="description"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Full Description</FormLabel>
+                  <FormLabel className="text-xs font-semibold text-slate-700">
+                    Full Description / Technical Specifications
+                  </FormLabel>
                   <FormControl>
-                    <Textarea placeholder="Detailed product specifications, features, and info..." className="min-h-[150px]" {...field} />
+                    <Textarea
+                      rows={5}
+                      placeholder="Write full product specs, compatible models, repair guide notes..."
+                      className="text-sm leading-relaxed"
+                      {...field}
+                    />
                   </FormControl>
-                  <FormMessage />
+                  <FormMessage className="text-xs" />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="warranty"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs font-semibold text-slate-700">
+                    Warranty Policy / Coverage
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="e.g. 7 Days Replacement / 6 Months Service Warranty"
+                      className="h-10 text-sm"
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage className="text-xs" />
                 </FormItem>
               )}
             />
           </div>
+        )}
 
-          {/* Media */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <h3 className="font-semibold text-slate-800 text-lg mb-4">Product Images</h3>
-            
-            <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center hover:bg-slate-50 transition-colors relative cursor-pointer">
-              <input 
-                type="file" 
-                multiple 
-                accept="image/*" 
-                onChange={handleImageUpload} 
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
-              />
-              <div className="flex flex-col items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                  <UploadCloud className="w-6 h-6" />
-                </div>
-                <div>
-                  <p className="font-semibold text-slate-700">Click or drag images here</p>
-                  <p className="text-sm text-slate-500 mt-1">Supports JPG, PNG, WEBP (Max 5MB per file)</p>
-                </div>
-              </div>
-            </div>
+        {/* Tab 3: Variations */}
+        {activeTab === "variations" && (
+          <VariationsGenerator
+            baseSku={watchCode || "PROD"}
+            defaultBuyingPrice={watchBuyingPrice}
+            defaultSellingPrice={watchSellingPrice}
+            defaultWholesalePrice={watchWholesalePrice}
+            variants={variants}
+            onChange={setVariants}
+            productType={watchProductType}
+            brandName={selectedBrandName}
+            condition={watchCondition}
+          />
+        )}
 
-            {/* Display Existing & New Images */}
-            {(existingImages.length > 0 || newImageFiles.length > 0) && (
-              <div className="mt-6 space-y-3">
-                <p className="text-sm font-medium text-slate-700">Image Gallery</p>
-                <div className="flex flex-wrap gap-4">
-                  {existingImages.map((img) => (
-                    <div key={img.id} className="relative group w-24 h-24 rounded-lg overflow-hidden border border-slate-200 bg-slate-50">
-                      <img src={getImageUrl(img.url)} alt="Product" className="w-full h-full object-cover" />
-                      <button 
-                        type="button" 
-                        onClick={() => removeExistingImage(img.id)} 
-                        className="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors shadow-sm"
-                        title="Delete image"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-
-                  {newImageFiles.map((file, idx) => (
-                    <div key={idx} className="relative group w-24 h-24 rounded-lg overflow-hidden border border-emerald-300 bg-emerald-50">
-                      <img src={URL.createObjectURL(file)} alt="New upload" className="w-full h-full object-cover" />
-                      <span className="absolute bottom-1 left-1 bg-emerald-600 text-white text-[9px] px-1 rounded font-medium">New</span>
-                      <button 
-                        type="button" 
-                        onClick={() => removeNewImage(idx)} 
-                        className="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center hover:bg-red-600 transition-colors shadow-sm"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Variants */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <div className="flex items-center justify-between mb-4">
+        {/* Tab 4: Optional Add-ons */}
+        {activeTab === "add-ons" && (
+          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
-                <h3 className="font-semibold text-slate-800 text-lg">Variants & Options</h3>
-                <p className="text-xs text-slate-500">Color, Quality, SKU, Price & Stock per variant</p>
+                <h3 className="text-sm font-bold text-slate-800">
+                  Optional Add-ons & Service Bundles
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Configure complementary accessories (e.g. Tempered Glass, Screwdriver Kit, Installation Service)
+                </p>
               </div>
-              <button 
-                type="button" 
-                onClick={() => appendVariant({ color: "", quality: "", price: watchPrice || 0, stock: 10, sku: "" })} 
-                className="text-emerald-600 hover:text-emerald-700 font-medium text-sm flex items-center gap-1 bg-emerald-50 px-3 py-1.5 rounded-md transition-colors"
+              <Button
+                type="button"
+                size="sm"
+                onClick={() =>
+                  setAddOns((prev) => [...prev, { title: "", price: 0, note: "" }])
+                }
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 gap-1.5"
               >
-                <Plus className="w-4 h-4" /> Add Variant
-              </button>
+                <Plus className="w-3.5 h-3.5" />
+                Add Add-on Line
+              </Button>
             </div>
 
-            {variantFields.length === 0 ? (
-              <div className="text-center py-6 bg-slate-50 border border-dashed border-slate-200 rounded-lg">
-                <p className="text-slate-500 text-sm">No specific variants added. A default variant will be automatically assigned.</p>
+            {addOns.length === 0 ? (
+              <div className="py-10 text-center border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50">
+                <Tag className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+                <p className="text-xs text-slate-500">
+                  No optional add-ons configured. Click &ldquo;Add Add-on Line&rdquo; to attach upsell items.
+                </p>
               </div>
             ) : (
-              <div className="space-y-4">
-                {variantFields.map((field, index) => (
-                  <div key={field.id} className="flex items-start gap-4 p-4 bg-slate-50 rounded-lg border border-slate-200 relative group">
-                    <button 
-                      type="button" 
-                      onClick={() => removeVariant(index)} 
-                      className="absolute -top-2 -right-2 w-6 h-6 bg-red-100 hover:bg-red-500 text-red-600 hover:text-white rounded-full flex items-center justify-center transition-colors shadow-sm"
+              <div className="space-y-2">
+                {addOns.map((ao, idx) => (
+                  <div key={idx} className="flex items-center gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                    <Input
+                      placeholder="Add-on Title (e.g. Installation Service)"
+                      value={ao.title}
+                      onChange={(e) => {
+                        const updated = [...addOns];
+                        updated[idx].title = e.target.value;
+                        setAddOns(updated);
+                      }}
+                      className="h-8 text-xs bg-white flex-1"
+                    />
+                    <Input
+                      type="number"
+                      placeholder="Extra Price (৳)"
+                      value={ao.price || ""}
+                      onChange={(e) => {
+                        const updated = [...addOns];
+                        updated[idx].price = Number(e.target.value) || 0;
+                        setAddOns(updated);
+                      }}
+                      className="h-8 text-xs bg-white w-32"
+                    />
+                    <Input
+                      placeholder="Note / Description"
+                      value={ao.note}
+                      onChange={(e) => {
+                        const updated = [...addOns];
+                        updated[idx].note = e.target.value;
+                        setAddOns(updated);
+                      }}
+                      className="h-8 text-xs bg-white flex-1"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setAddOns((prev) => prev.filter((_, i) => i !== idx))}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 rounded"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 flex-1">
-                      <FormField
-                        control={form.control}
-                        name={`variants.${index}.color`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs">Color</FormLabel>
-                            <FormControl><Input placeholder="e.g. Black" {...field} /></FormControl>
-                            <FormMessage className="text-[10px]" />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name={`variants.${index}.quality`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs">Quality / Type</FormLabel>
-                            <FormControl><Input placeholder="e.g. Original / OLED" {...field} /></FormControl>
-                            <FormMessage className="text-[10px]" />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name={`variants.${index}.sku`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs">SKU</FormLabel>
-                            <FormControl><Input placeholder="Auto-generated if blank" {...field} /></FormControl>
-                            <FormMessage className="text-[10px]" />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name={`variants.${index}.price`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs">Price (৳)</FormLabel>
-                            <FormControl><Input type="number" {...field} /></FormControl>
-                            <FormMessage className="text-[10px]" />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name={`variants.${index}.stock`}
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-xs">Stock</FormLabel>
-                            <FormControl><Input type="number" {...field} /></FormControl>
-                            <FormMessage className="text-[10px]" />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
                   </div>
                 ))}
               </div>
             )}
           </div>
+        )}
 
-          {/* Pricing */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <h3 className="font-semibold text-slate-800 text-lg mb-4">Pricing</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <FormField
-                control={form.control}
-                name="price"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Regular Price (৳) *</FormLabel>
-                    <FormControl><Input type="number" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="salePrice"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Sale Price (৳)</FormLabel>
-                    <FormControl><Input type="number" {...field} value={field.value ?? ""} /></FormControl>
-                    <FormDescription>
-                      {watchPrice && watchSalePrice && watchPrice > watchSalePrice && (
-                        <span className="text-emerald-600 font-medium text-xs">
-                          Saves ৳{(watchPrice - watchSalePrice).toLocaleString()} ({Math.round(((watchPrice - watchSalePrice) / watchPrice) * 100)}%)
-                        </span>
-                      )}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="costPrice"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Cost Price (৳)</FormLabel>
-                    <FormControl><Input type="number" {...field} value={field.value ?? ""} /></FormControl>
-                    <FormDescription className="text-xs text-slate-400">Internal procurement cost</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+        {/* Tab 5: SEO Information */}
+        {activeTab === "seo" && (
+          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-5">
+            <h3 className="text-sm font-bold text-slate-800 border-b border-slate-100 pb-3 flex items-center gap-2">
+              <Search className="w-4 h-4 text-emerald-600" />
+              Search Engine Optimization (SEO)
+            </h3>
+
+            <FormField
+              control={form.control}
+              name="metaTitle"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs font-semibold text-slate-700">
+                    Meta Title
+                  </FormLabel>
+                  <FormControl>
+                    <Input placeholder="SEO Title tag for Google..." className="h-10 text-sm" {...field} />
+                  </FormControl>
+                  <FormMessage className="text-xs" />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="metaDescription"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs font-semibold text-slate-700">
+                    Meta Description
+                  </FormLabel>
+                  <FormControl>
+                    <Textarea rows={3} placeholder="SEO description snippet (160 characters)..." className="text-sm" {...field} />
+                  </FormControl>
+                  <FormMessage className="text-xs" />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="metaKeywords"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs font-semibold text-slate-700">
+                    Meta Keywords
+                  </FormLabel>
+                  <FormControl>
+                    <Input placeholder="oled, display, samsung, spare parts..." className="h-10 text-sm" {...field} />
+                  </FormControl>
+                  <FormMessage className="text-xs" />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="ogImageUrl"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-xs font-semibold text-slate-700">
+                    OpenGraph Image URL
+                  </FormLabel>
+                  <FormControl>
+                    <Input placeholder="https://..." className="h-10 text-sm font-mono" {...field} />
+                  </FormControl>
+                  <FormMessage className="text-xs" />
+                </FormItem>
+              )}
+            />
+          </div>
+        )}
+
+        {/* Sticky Action Footer */}
+        <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur border-t border-slate-200 py-3 px-6 shadow-lg flex items-center justify-between">
+          <div className="text-xs text-slate-500 font-medium">
+            {isEdit ? "Editing existing product" : "Creating new product intake"} • {selectedCategoryIds.length} categories • {variants.length} variations
           </div>
 
-          {/* Specifications */}
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-slate-800 text-lg">Specifications</h3>
-              <button 
-                type="button" 
-                onClick={() => appendSpec({ label: "", value: "" })} 
-                className="text-emerald-600 hover:text-emerald-700 font-medium text-sm flex items-center gap-1 bg-emerald-50 px-3 py-1.5 rounded-md transition-colors"
-              >
-                <Plus className="w-4 h-4" /> Add Spec
-              </button>
-            </div>
-            
-            <div className="space-y-3">
-              {specFields.map((field, index) => (
-                <div key={field.id} className="flex items-start gap-3">
-                  <div className="grid grid-cols-2 gap-3 flex-1">
-                    <FormField
-                      control={form.control}
-                      name={`specifications.${index}.label`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl><Input placeholder="Label (e.g. Warranty)" {...field} /></FormControl>
-                          <FormMessage className="text-xs" />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name={`specifications.${index}.value`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormControl><Input placeholder="Value (e.g. 6 Months)" {...field} /></FormControl>
-                          <FormMessage className="text-xs" />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                  <button 
-                    type="button" 
-                    onClick={() => removeSpec(index)} 
-                    className="w-10 h-10 shrink-0 bg-slate-100 hover:bg-red-100 text-slate-400 hover:text-red-500 rounded-lg flex items-center justify-center transition-colors"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
+          <div className="flex items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => form.reset()}
+              className="text-xs h-9 border-slate-300 text-slate-700 gap-1.5"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Reset Form
+            </Button>
 
-          {/* SEO */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <details className="group">
-              <summary className="font-semibold text-slate-800 text-lg p-6 flex justify-between items-center cursor-pointer list-none">
-                SEO Metadata (Optional)
-                <span className="transition group-open:rotate-180">
-                  <ChevronDown className="w-5 h-5 text-slate-400" />
-                </span>
-              </summary>
-              <div className="p-6 pt-0 border-t border-slate-100 space-y-4">
-                <FormField
-                  control={form.control}
-                  name="metaTitle"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Meta Title</FormLabel>
-                      <FormControl><Input {...field} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="metaDescription"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Meta Description</FormLabel>
-                      <FormControl><Textarea className="resize-none h-20" {...field} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="metaKeywords"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Meta Keywords</FormLabel>
-                      <FormControl><Input placeholder="iphone, display, screen..." {...field} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            </details>
+            <Button
+              type="submit"
+              disabled={isSubmitting}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-9 gap-1.5 shadow-sm px-5"
+            >
+              <Save className="w-3.5 h-3.5" />
+              {isSubmitting ? "Saving Product..." : "Save Product"}
+            </Button>
           </div>
-
         </div>
-
-        {/* RIGHT COLUMN: Sticky Sidebar */}
-        <div className="w-full lg:w-1/3 space-y-6 lg:sticky lg:top-6">
-          
-          {/* Publish Card */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-5">
-            <h3 className="font-semibold text-slate-800 border-b border-slate-100 pb-3">Publish</h3>
-            
-            <FormField
-              control={form.control}
-              name="status"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Visibility Status</FormLabel>
-                  <FormControl>
-                    <select 
-                      {...field} 
-                      className="w-full h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all cursor-pointer"
-                    >
-                      <option value="DRAFT">Draft</option>
-                      <option value="ACTIVE">Active / Published</option>
-                      <option value="OUT_OF_STOCK">Out of Stock</option>
-                    </select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="flex flex-col gap-2 pt-2">
-              <button 
-                type="submit" 
-                disabled={isSubmitting}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-colors"
-              >
-                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                {isEdit ? "Update Product" : "Save & Publish"}
-              </button>
-              <button 
-                type="button" 
-                disabled={isSubmitting}
-                onClick={() => {
-                  form.setValue("status", "DRAFT");
-                  form.handleSubmit(onSubmit)();
-                }}
-                className="w-full flex items-center justify-center px-4 py-2.5 border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium rounded-lg transition-colors"
-              >
-                Save as Draft
-              </button>
-            </div>
-          </div>
-
-          {/* Organization Card */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
-            <h3 className="font-semibold text-slate-800 border-b border-slate-100 pb-3">Organization</h3>
-            
-            <FormField
-              control={form.control}
-              name="categoryId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Category *</FormLabel>
-                  <FormControl>
-                    <select 
-                      {...field} 
-                      className="w-full h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all cursor-pointer"
-                    >
-                      <option value="">Select Category</option>
-                      {categories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="brandId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Brand</FormLabel>
-                  <FormControl>
-                    <select 
-                      {...field} 
-                      className="w-full h-10 px-3 py-2 bg-white border border-slate-200 rounded-md text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all cursor-pointer"
-                    >
-                      <option value="">None / Generic Brand</option>
-                      {brands.map((b) => (
-                        <option key={b.id} value={b.id}>
-                          {b.name}
-                        </option>
-                      ))}
-                    </select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
-
-        </div>
-
       </form>
     </Form>
   );

@@ -1,4 +1,6 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { StaffStatus } from '@prisma/client';
 
 export class CreateUnitDto {
   @IsString()
@@ -6,6 +8,18 @@ export class CreateUnitDto {
   name: string;
 
   @IsString()
-  @IsNotEmpty()
-  shortCode: string;
+  @IsOptional()
+  shortCode?: string;
+
+  @Transform(({ value }) => {
+    if (typeof value === 'boolean') {
+      return value ? StaffStatus.ACTIVE : StaffStatus.INACTIVE;
+    }
+    if (value === 'true') return StaffStatus.ACTIVE;
+    if (value === 'false') return StaffStatus.INACTIVE;
+    return value;
+  })
+  @IsEnum(StaffStatus)
+  @IsOptional()
+  status?: StaffStatus;
 }

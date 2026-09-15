@@ -76,3 +76,41 @@ export class ReorderMenuItemsDto {
   @IsString({ each: true })
   menuItemIds: string[];
 }
+
+export class AddMenuBuilderItemsDto {
+  @IsString()
+  @IsNotEmpty()
+  sourceType: 'PAGE' | 'CATEGORY' | 'CUSTOM';
+
+  @IsArray()
+  @IsOptional()
+  sourceIds?: string[];
+
+  @IsString()
+  @IsOptional()
+  url?: string;
+
+  @IsString()
+  @IsOptional()
+  label?: string;
+}
+
+export class UpdateMenuBuilderItemDto {
+  @IsString()
+  @IsOptional()
+  urlSlug?: string;
+
+  @IsString()
+  @IsOptional()
+  navigationLabel?: string;
+
+  @IsString()
+  @IsOptional()
+  titleAttribute?: string;
+}
+
+export class ReorderMenuBuilderDto {
+  @IsArray()
+  @IsString({ each: true })
+  orderedIds: string[];
+}

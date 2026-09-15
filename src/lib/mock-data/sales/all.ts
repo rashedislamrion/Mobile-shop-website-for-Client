@@ -137,7 +137,7 @@ export const mockAllSales: MockSale[] = [
     total: 2800,
     paymentStatus: "Paid",
     dueAmount: 0,
-    status: "Delivered",
+    status: "Completed",
     staff: "N/A",
   },
   {

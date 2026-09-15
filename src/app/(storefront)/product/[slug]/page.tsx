@@ -288,10 +288,22 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
             <Link href="#reviews" className="text-sm text-primary hover:underline">128 Reviews</Link>
           </div>
 
-          <div className="flex items-end gap-3 mb-6">
+          <div className="flex items-end gap-3 mb-3">
             <span className="text-3xl font-bold text-slate-900">৳{currentPrice.toLocaleString()}</span>
             {regularPrice > currentPrice && (
               <span className="text-lg text-slate-400 line-through mb-1">৳{regularPrice.toLocaleString()}</span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 mb-6">
+            {isOutOfStock ? (
+              <Badge variant="outline" className="text-danger border-danger bg-danger/10 font-semibold px-2.5 py-0.5">
+                <AlertCircle className="w-3.5 h-3.5 mr-1 inline" /> Out of Stock
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-emerald-600 border-emerald-500 bg-emerald-50 font-semibold px-2.5 py-0.5">
+                <CheckCircle2 className="w-3.5 h-3.5 mr-1 inline" /> In Stock ({currentStock} available)
+              </Badge>
             )}
           </div>
 

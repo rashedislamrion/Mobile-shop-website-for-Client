@@ -9,7 +9,11 @@ import {
   Query,
   UseGuards,
   Req,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { createMulterConfig, resolveUploadedFile } from '../common/upload/multer.config';
 import { BlogService } from './blog.service';
 import { CreateBlogDto, UpdateBlogDto } from './dto/blog.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -53,13 +57,29 @@ export class BlogController {
 
   @Post()
   @RequirePermission({ module: ModuleName.BLOGS, action: PermissionAction.CREATE })
-  create(@Body() createDto: CreateBlogDto, @Req() req: any) {
+  @UseInterceptors(FileInterceptor('image', createMulterConfig('blogs')))
+  async create(
+    @Body() createDto: CreateBlogDto,
+    @Req() req: any,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (file) {
+      createDto.featuredImage = (await resolveUploadedFile(file, 'blogs')) || `/uploads/blogs/${file.filename}`;
+    }
     return this.blogService.create(createDto, req.user?.sub);
   }
 
   @Patch(':id')
   @RequirePermission({ module: ModuleName.BLOGS, action: PermissionAction.UPDATE })
-  update(@Param('id') id: string, @Body() updateDto: UpdateBlogDto) {
+  @UseInterceptors(FileInterceptor('image', createMulterConfig('blogs')))
+  async update(
+    @Param('id') id: string,
+    @Body() updateDto: UpdateBlogDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (file) {
+      updateDto.featuredImage = (await resolveUploadedFile(file, 'blogs')) || `/uploads/blogs/${file.filename}`;
+    }
     return this.blogService.update(id, updateDto);
   }
 

@@ -6,8 +6,9 @@ import { FilterBar } from "@/components/admin/FilterBar";
 import { DataTable, StatusBadge, ActionDropdown } from "@/components/admin/DataTable";
 import { FilterConfig, StatusVariant, TableAction } from "@/types/table";
 import { ColumnDef } from "@tanstack/react-table";
-import { Eye, CheckCircle, PackageCheck } from "lucide-react";
+import { Eye, CheckCircle, PackageCheck, Plus, Wrench } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { apiGet, apiPatch } from "@/lib/api-client";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -233,6 +234,23 @@ export default function ServiceListPage() {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+        <div>
+          <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+            <Wrench className="w-5 h-5 text-emerald-600" />
+            Servicing & Repair Jobs
+          </h2>
+          <p className="text-xs text-slate-500">Manage walk-in repair intakes, technician assignments, and parts history.</p>
+        </div>
+        <Button
+          onClick={() => router.push("/admin/servicing/create")}
+          className="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold flex items-center gap-1.5 shadow-sm"
+        >
+          <Plus className="w-4 h-4" />
+          Create New Service
+        </Button>
+      </div>
+
       <FilterBar 
         searchPlaceholder="Search ID, Customer, Device..."
         filters={filterConfigs}

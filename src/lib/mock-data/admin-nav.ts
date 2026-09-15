@@ -60,7 +60,16 @@ export const adminNavConfig: NavGroup[] = [
           { label: "Courier Sales", href: "/admin/sales/courier", module: "SALES" },
           { label: "All Sales", href: "/admin/sales/all", module: "SALES" },
           { label: "Service List", href: "/admin/sales/service", module: "SALES" },
+          { label: "New Service Job", href: "/admin/servicing/create", module: "SALES" },
           { label: "Courier List", href: "/admin/sales/courier-list", module: "SALES" }
+        ]
+      },
+      {
+        label: "Customers",
+        icon: Users,
+        module: "CUSTOMERS",
+        children: [
+          { label: "All Customer", href: "/admin/customers", module: "CUSTOMERS" }
         ]
       }
     ]
@@ -124,11 +133,19 @@ export const adminNavConfig: NavGroup[] = [
         icon: PieChart,
         module: "REPORT",
         children: [
-          { label: "Product Analytics Report", href: "/admin/reports/product-analytics", module: "REPORT" },
+          { label: "Website Sales", href: "/admin/reports/website-sales", module: "REPORT" },
+          { label: "POS Sales", href: "/admin/reports/pos-sales", module: "REPORT" },
+          { label: "Service Sales", href: "/admin/reports/service-sales", module: "REPORT" },
+          { label: "Expense Report", href: "/admin/reports/expense", module: "REPORT" },
+          { label: "Purchase Report", href: "/admin/reports/purchase", module: "REPORT" },
+          { label: "Transactions Report", href: "/admin/reports/transactions", module: "REPORT" },
+          { label: "Product Stock Report", href: "/admin/reports/product-stock", module: "REPORT" },
           { label: "Customer Due Report", href: "/admin/reports/customer-due", module: "REPORT" },
           { label: "Supplier Due Report", href: "/admin/reports/supplier-due", module: "REPORT" },
+          { label: "Courier Report", href: "/admin/reports/courier", module: "REPORT" },
+          { label: "Product Analytics", href: "/admin/reports/product-analytics", module: "REPORT" },
           { label: "Summary Report", href: "/admin/reports/summary", module: "REPORT" },
-          { label: "Discount Report", href: "/admin/reports/discount", module: "REPORT" }
+          { label: "Discount Report", href: "/admin/reports/discount", module: "REPORT" },
         ]
       }
     ]
@@ -193,7 +210,13 @@ export const adminNavConfig: NavGroup[] = [
         icon: Settings,
         module: "BUSINESS_SETTINGS",
         children: [
-          { label: "General Settings", href: "/admin/business/general", module: "BUSINESS_SETTINGS" }
+          { label: "General Settings", href: "/admin/business-settings/general", module: "BUSINESS_SETTINGS" },
+          { label: "Business Setup", href: "/admin/business-settings/setup", module: "BUSINESS_SETTINGS" },
+          { label: "Manage Verification", href: "/admin/business-settings/verification", module: "BUSINESS_SETTINGS" },
+          { label: "Currency", href: "/admin/business-settings/currency", module: "BUSINESS_SETTINGS" },
+          { label: "Delivery Charge", href: "/admin/business-settings/delivery-charge", module: "BUSINESS_SETTINGS" },
+          { label: "Social Links", href: "/admin/cms/social", module: "CMS" },
+          { label: "Ticket Issue Types", href: "/admin/cms/ticket-issues", module: "CMS" }
         ]
       },
       {
@@ -205,9 +228,7 @@ export const adminNavConfig: NavGroup[] = [
           { label: "Menus", href: "/admin/cms/menus", module: "CMS" },
           { label: "Footer", href: "/admin/cms/footer", module: "CMS" },
           { label: "Country List", href: "/admin/cms/countries", module: "CMS" },
-          { label: "Social Links", href: "/admin/cms/social", module: "CMS" },
-          { label: "Contact Us", href: "/admin/cms/contact", module: "CMS" },
-          { label: "Ticket Issue Types", href: "/admin/cms/ticket-issues", module: "CMS" }
+          { label: "Contact Us", href: "/admin/cms/contact", module: "CMS" }
         ]
       },
       { label: "3rd Party Configuration", href: "/admin/3rd-party", icon: Fingerprint, module: "THIRD_PARTY_CONFIG" }

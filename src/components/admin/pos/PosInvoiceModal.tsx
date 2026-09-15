@@ -1,12 +1,14 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Printer, CheckCircle2, ShoppingBag, ArrowRight, Download, Store, User, Phone, MapPin, Calendar, Clock } from "lucide-react";
+import { Printer, CheckCircle2, ShoppingBag, ArrowRight, Download, Store, User, Phone, MapPin, Calendar, Clock, ShieldCheck } from "lucide-react";
+import { apiGet } from "@/lib/api-client";
 
 export interface PosInvoiceModalProps {
   open: boolean;
@@ -21,6 +23,19 @@ export function PosInvoiceModal({
   order,
   onNewSale,
 }: PosInvoiceModalProps) {
+  const [shopSettings, setShopSettings] = useState<any>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiGet<any>("/business-settings");
+        if (res) setShopSettings(res);
+      } catch {
+        // Fallback gracefully
+      }
+    })();
+  }, []);
+
   if (!order) return null;
 
   const handlePrint = () => {
@@ -30,9 +45,13 @@ export function PosInvoiceModal({
   const isDiagnosing = order.status === "DIAGNOSING" || order.saleType === "DIAGNOSING";
   const isCourier = order.saleType === "COURIER";
 
+  const shopName = shopSettings?.companyName || shopSettings?.shopName || order.branch?.name || "Nova Mobile";
+  const shopAddress = shopSettings?.address || shopSettings?.companyAddress || order.branch?.address || "Mobile Retail & Service Center";
+  const shopPhone = shopSettings?.phone || shopSettings?.companyPhone || order.branch?.phone || "+880 1700-000000";
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[650px] p-0 overflow-hidden rounded-2xl border border-slate-200 print:border-none print:shadow-none print:max-w-full">
+      <DialogContent className="sm:max-w-[680px] p-0 overflow-hidden rounded-2xl border border-slate-200 print:border-none print:shadow-none print:max-w-full">
         {/* Screen Only Header Banner */}
         <div className="bg-emerald-600 px-6 py-4 text-white print:hidden">
           <div className="flex items-center justify-between">
@@ -59,34 +78,42 @@ export function PosInvoiceModal({
         <div id="printable-receipt" className="p-6 space-y-5 bg-white text-slate-800 text-sm">
           {/* Brand & Store Header */}
           <div className="text-center border-b border-slate-200 pb-4 space-y-1">
-            <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">NOVA MOBILE</h2>
-            <p className="text-xs text-slate-500 font-medium">Smart Retail & Device Repair Specialists</p>
-            <p className="text-xs text-slate-600 flex items-center justify-center gap-1.5 pt-0.5">
-              <Store className="w-3.5 h-3.5 text-slate-400" />
-              {order.branch?.name || "Main Branch"}
+            <h2 className="text-xl font-extrabold text-slate-900 tracking-tight uppercase">{shopName}</h2>
+            <p className="text-xs text-slate-500 font-medium">{shopAddress}</p>
+            <p className="text-xs text-slate-600 flex items-center justify-center gap-3 pt-0.5">
+              <span className="flex items-center gap-1"><Phone className="w-3 h-3 text-slate-400" /> {shopPhone}</span>
+              {order.branch?.name && (
+                <span className="flex items-center gap-1"><Store className="w-3.5 h-3.5 text-slate-400" /> Outlet: {order.branch.name}</span>
+              )}
             </p>
           </div>
 
           {/* Invoice Metadata Row */}
-          <div className="grid grid-cols-2 gap-4 text-xs bg-slate-50 p-3 rounded-xl border border-slate-200/80">
+          <div className="grid grid-cols-2 gap-4 text-xs bg-slate-50 p-3.5 rounded-xl border border-slate-200/80">
             <div className="space-y-1">
               <div>
                 <span className="text-slate-400 font-semibold">INVOICE NO:</span>
                 <span className="font-mono font-bold text-slate-900 ml-1.5">{order.orderCode}</span>
               </div>
               <div>
-                <span className="text-slate-400 font-semibold">DATE:</span>
+                <span className="text-slate-400 font-semibold">DATE & TIME:</span>
                 <span className="font-medium text-slate-700 ml-1.5">
-                  {new Date(order.createdAt || Date.now()).toLocaleDateString("en-GB", {
+                  {new Date(order.createdAt || Date.now()).toLocaleString("en-GB", {
                     day: "2-digit",
                     month: "short",
                     year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
                   })}
                 </span>
               </div>
               <div>
                 <span className="text-slate-400 font-semibold">STATUS:</span>
                 <span className="font-semibold text-emerald-700 ml-1.5 uppercase">{order.status}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 font-semibold">PAYMENT METHOD:</span>
+                <span className="font-bold text-slate-800 ml-1.5 uppercase">{order.paymentMethod || "CASH"}</span>
               </div>
             </div>
 
@@ -101,8 +128,14 @@ export function PosInvoiceModal({
                   <span className="font-mono text-slate-700 ml-1.5">{order.customer.phone}</span>
                 </div>
               )}
+              {(order.customer?.address || order.shippingAddress?.fullAddress || order.shippingAddress) && (
+                <div>
+                  <span className="text-slate-400 font-semibold">ADDRESS:</span>
+                  <span className="text-slate-700 ml-1.5">{order.customer?.address || order.shippingAddress?.fullAddress || order.shippingAddress}</span>
+                </div>
+              )}
               <div>
-                <span className="text-slate-400 font-semibold">PAYMENT:</span>
+                <span className="text-slate-400 font-semibold">PAYMENT STATUS:</span>
                 <span className="font-bold text-slate-800 ml-1.5 uppercase">{order.paymentStatus}</span>
               </div>
             </div>
@@ -141,32 +174,54 @@ export function PosInvoiceModal({
             <table className="w-full text-xs">
               <thead className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
                 <tr>
-                  <th className="py-2.5 px-3 text-left">Item Description</th>
+                  <th className="py-2.5 px-3 text-left">Item Details & Device Info</th>
                   <th className="py-2.5 px-3 text-center w-14">Qty</th>
                   <th className="py-2.5 px-3 text-right w-24">Unit (৳)</th>
                   <th className="py-2.5 px-3 text-right w-24">Total (৳)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {order.items?.map((item: any, idx: number) => (
-                  <tr key={item.id || idx}>
-                    <td className="py-2 px-3">
-                      <div className="font-semibold text-slate-800">{item.productNameSnapshot || item.product?.name || "Item"}</div>
-                      {item.variant && (
-                        <div className="text-[10px] text-slate-500">
-                          {item.variant.color ? `Color: ${item.variant.color}` : ""} {item.variant.quality ? `(${item.variant.quality})` : ""}
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-2 px-3 text-center font-bold text-slate-700">{item.quantity}</td>
-                    <td className="py-2 px-3 text-right font-medium text-slate-600">
-                      {Number(item.unitPrice).toLocaleString()}
-                    </td>
-                    <td className="py-2 px-3 text-right font-bold text-slate-900">
-                      {Number(item.lineTotal || item.quantity * item.unitPrice).toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
+                {order.items?.map((item: any, idx: number) => {
+                  const pu = item.phoneUnits?.[0] || item.phoneUnit;
+                  return (
+                    <tr key={item.id || idx}>
+                      <td className="py-2.5 px-3">
+                        <div className="font-bold text-slate-900">{item.productNameSnapshot || item.product?.name || "Item"}</div>
+                        {item.variant && (
+                          <div className="text-[11px] text-slate-500">
+                            {item.variant.color ? `Color: ${item.variant.color}` : ""} {item.variant.quality ? `• Quality: ${item.variant.quality}` : ""}
+                          </div>
+                        )}
+                        {pu && (
+                          <div className="mt-1.5 p-2 bg-slate-50 border border-slate-200 rounded-lg text-[11px] space-y-0.5">
+                            <div className="font-mono font-bold text-slate-800">
+                              IMEI 1: <span className="text-emerald-700">{pu.imei1}</span>
+                              {pu.imei2 ? ` • IMEI 2: ${pu.imei2}` : ""}
+                            </div>
+                            {pu.serialNumber && <div className="text-slate-600">Serial No: {pu.serialNumber}</div>}
+                            {pu.condition && <div className="text-slate-600">Condition: <span className="font-semibold">{pu.condition}</span></div>}
+                            {(pu.warrantyType || item.warrantyType) && (
+                              <div className="flex items-center gap-1 text-emerald-700 font-medium pt-0.5">
+                                <ShieldCheck className="w-3.5 h-3.5" />
+                                <span>Warranty: {pu.warrantyType || item.warrantyType} {pu.warrantyPeriod || item.warrantyPeriod ? `(${pu.warrantyPeriod || item.warrantyPeriod})` : ""}</span>
+                                {(pu.warrantyEndDate || item.warrantyEndDate) && (
+                                  <span className="text-slate-500">• Exp: {new Date(pu.warrantyEndDate || item.warrantyEndDate).toLocaleDateString()}</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-700">{item.quantity}</td>
+                      <td className="py-2.5 px-3 text-right font-medium text-slate-600">
+                        {Number(item.unitPrice).toLocaleString()}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-bold text-slate-900">
+                        {Number(item.lineTotal || item.quantity * item.unitPrice).toLocaleString()}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -205,9 +260,14 @@ export function PosInvoiceModal({
             )}
           </div>
 
-          {/* Footer Receipt Note */}
-          <div className="text-center text-[10px] text-slate-400 border-t border-slate-100 pt-3">
-            Thank you for shopping with Nova Mobile! Please preserve this invoice for warranty and support claims.
+          {/* Mandatory Footer Receipt Note (Section 1.4) */}
+          <div className="text-center space-y-1.5 border-t border-slate-200 pt-3">
+            <div className="text-xs font-bold text-rose-600 uppercase tracking-wide">
+              * Without Display Guarantee
+            </div>
+            <div className="text-[10px] text-slate-400">
+              Thank you for shopping with {shopName}! Please preserve this invoice for warranty and support claims.
+            </div>
           </div>
         </div>
 

@@ -1,17 +1,23 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Plus, Edit, Trash2, ExternalLink, Lock, Loader2 } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Plus, Pencil, Trash2, Eye, Loader2 } from "lucide-react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
-import { DataTable, StatusBadge } from "@/components/admin/DataTable";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { toast } from "sonner";
-import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api-client";
-import { format } from "date-fns";
+import { apiGet, apiDelete } from "@/lib/api-client";
+import { AccessDenied } from "@/components/admin/AccessDenied";
 
 export interface PageRecord {
   id: string;
@@ -23,206 +29,185 @@ export interface PageRecord {
   updatedAt: string;
 }
 
+// 5 hardcoded system-route rows per Eastern Mobile reference
+const SYSTEM_PAGES = [
+  { id: "sys-1", title: "Products", url: "/category/all", isSystemRoute: true },
+  { id: "sys-2", title: "Most Popular", url: "/category/all?filter=popular", isSystemRoute: true },
+  { id: "sys-3", title: "Best Deal", url: "/category/all?filter=deals", isSystemRoute: true },
+  { id: "sys-4", title: "Contact", url: "/contact", isSystemRoute: true },
+  { id: "sys-5", title: "Blogs", url: "/blog", isSystemRoute: true },
+];
+
+const PROTECTED_SLUGS = new Set([
+  "about",
+  "about-us",
+  "privacy",
+  "privacy-policy",
+  "terms",
+  "terms-conditions",
+  "terms-of-service",
+  "refund-policy",
+]);
+
 export default function PagesManagementPage() {
-  const { setTitle, setBadge } = useAdminPage();
+  const router = useRouter();
+  const { setTitle } = useAdminPage();
   const [pages, setPages] = useState<PageRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const [newPage, setNewPage] = useState({
-    title: "",
-    slug: "",
-    content: "",
-    status: "PUBLISHED" as "PUBLISHED" | "DRAFT",
-  });
+  const [isForbidden, setIsForbidden] = useState(false);
 
   const fetchPages = async () => {
     setIsLoading(true);
     try {
       const data = await apiGet<PageRecord[]>("/pages");
       setPages(data || []);
-    } catch (e) {
-      console.error(e);
-      toast.error("Failed to load CMS pages");
+    } catch (e: any) {
+      if (e.status === 403 || e.message?.includes("Forbidden") || e.message?.includes("restricted")) {
+        setIsForbidden(true);
+      } else {
+        toast.error(e.message || "Failed to load CMS pages");
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
+  if (isForbidden) {
+    return (
+      <AccessDenied
+        moduleName="CMS"
+        message="Access restricted: Only Global Administrators can access or modify CMS pages."
+      />
+    );
+  }
+
   useEffect(() => {
     setTitle("Pages");
-    setBadge("CMS");
     fetchPages();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [setTitle]);
 
-  const handleTitleChange = (val: string) => {
-    const autoSlug = val
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)+/g, "");
-    setNewPage({ ...newPage, title: val, slug: autoSlug });
-  };
-
-  const handleSavePage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newPage.title.trim() || !newPage.content.trim()) {
-      toast.error("Title and content are required.");
+  const handleDelete = async (page: PageRecord) => {
+    if (page.isSystem || PROTECTED_SLUGS.has(page.slug)) {
+      toast.error("Protected system page cannot be deleted");
       return;
     }
 
-    setIsSubmitting(true);
+    if (!confirm(`Are you sure you want to delete "${page.title}"?`)) return;
+
     try {
-      await apiPost("/pages", {
-        title: newPage.title.trim(),
-        slug: newPage.slug.trim(),
-        content: newPage.content.trim(),
-        status: newPage.status,
-      });
-      toast.success("Page created successfully!");
-      setIsDialogOpen(false);
-      setNewPage({
-        title: "",
-        slug: "",
-        content: "",
-        status: "PUBLISHED",
-      });
+      await apiDelete(`/pages/${page.id}`);
+      toast.success(`Page "${page.title}" deleted successfully`);
       fetchPages();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to create page");
-    } finally {
-      setIsSubmitting(false);
+    } catch (e: any) {
+      toast.error(e.message || "Failed to delete page");
     }
   };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this page?")) return;
-    try {
-      await apiDelete(`/pages/${id}`);
-      toast.success("Page deleted successfully");
-      fetchPages();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to delete page");
-    }
-  };
-
-  const columns = [
-    {
-      header: "Page Title",
-      accessor: (page: PageRecord) => <span className="font-bold text-slate-900">{page.title}</span>,
-    },
-    {
-      header: "Slug",
-      accessor: (page: PageRecord) => <span className="text-slate-500 font-mono text-xs">{page.slug}</span>,
-    },
-    {
-      header: "Last Updated",
-      accessor: (page: PageRecord) => (
-        <span className="text-slate-500 text-xs">
-          {format(new Date(page.updatedAt), "MMM d, yyyy")}
-        </span>
-      ),
-    },
-    {
-      header: "Status",
-      accessor: (page: PageRecord) => {
-        const s = page.status;
-        const type = s === "PUBLISHED" ? "success" : "neutral";
-        return <StatusBadge status={s} type={type as any} />;
-      },
-    },
-    {
-      header: "Action",
-      accessor: (page: PageRecord) => (
-        <div className="flex items-center gap-2">
-          <a
-            href={`/${page.slug === 'terms-and-conditions' ? 'terms' : page.slug === 'privacy-policy' ? 'privacy' : page.slug === 'about-us' ? 'about' : page.slug}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="p-1.5 text-slate-400 hover:text-emerald-600 rounded-lg"
-            title="View Live"
-          >
-            <ExternalLink className="w-4 h-4" />
-          </a>
-          {page.isSystem ? (
-            <span className="p-1.5 text-slate-300" title="System Page">
-              <Lock className="w-4 h-4" />
-            </span>
-          ) : (
-            <button
-              className="p-1.5 text-slate-400 hover:text-danger rounded-lg"
-              title="Delete"
-              onClick={() => handleDelete(page.id)}
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-      ),
-    },
-  ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center bg-white p-4 rounded-xl border shadow-sm">
+    <div className="space-y-6 max-w-6xl mx-auto pb-20">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-base font-bold text-slate-800">Static Pages Management</h2>
-          <p className="text-xs text-slate-500">Manage legal, informational, and policy pages</p>
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight">Pages</h1>
+          <p className="text-xs text-slate-500">Manage standard routing pages and custom rich CMS content</p>
         </div>
-        <Button onClick={() => setIsDialogOpen(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs">
-          <Plus className="w-4 h-4 mr-1.5" /> Add New Page
+        <Button
+          onClick={() => router.push("/admin/cms/pages/create")}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold h-9 px-4 gap-2 rounded-lg shadow-sm"
+        >
+          <Plus className="w-4 h-4" /> Create New
         </Button>
       </div>
 
-      <div className="bg-white border rounded-xl shadow-sm">
-        <DataTable columns={columns} data={pages} isLoading={isLoading} />
-      </div>
+      {/* Pages Table Card */}
+      <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden bg-white">
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader className="bg-slate-50 border-b border-slate-200">
+              <TableRow>
+                <TableHead className="w-16 font-bold text-xs text-slate-600">SL</TableHead>
+                <TableHead className="font-bold text-xs text-slate-600">NAME</TableHead>
+                <TableHead className="font-bold text-xs text-slate-600">URL</TableHead>
+                <TableHead className="w-32 text-right font-bold text-xs text-slate-600">ACTION</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {/* 1. System routes (Products, Most Popular, Best Deal, Contact, Blogs) */}
+              {SYSTEM_PAGES.map((sp, idx) => (
+                <TableRow key={sp.id} className="hover:bg-slate-50/40 bg-slate-50/20">
+                  <TableCell className="text-xs font-medium text-slate-400">{idx + 1}</TableCell>
+                  <TableCell className="text-xs font-semibold text-slate-800">{sp.title}</TableCell>
+                  <TableCell className="text-xs font-mono text-slate-500">{sp.url}</TableCell>
+                  <TableCell className="text-right">
+                    <span className="italic text-slate-400 text-xs font-normal">No action</span>
+                  </TableCell>
+                </TableRow>
+              ))}
 
-      {/* Add Page Modal */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Create Static Page</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleSavePage} className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Page Title *</label>
-              <Input
-                placeholder="e.g. Return & Refund Policy"
-                value={newPage.title}
-                onChange={(e) => handleTitleChange(e.target.value)}
-                required
-              />
-            </div>
+              {/* 2. CMS Database pages */}
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={4} className="h-32 text-center">
+                    <Loader2 className="w-6 h-6 animate-spin text-emerald-500 mx-auto" />
+                  </TableCell>
+                </TableRow>
+              ) : (
+                pages.map((p, idx) => {
+                  const isProtected = p.isSystem || PROTECTED_SLUGS.has(p.slug);
+                  const pageUrl = `/pages/${p.slug}`;
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">URL Slug *</label>
-              <Input
-                placeholder="return-and-refund-policy"
-                value={newPage.slug}
-                onChange={(e) => setNewPage({ ...newPage, slug: e.target.value })}
-                required
-              />
-            </div>
+                  return (
+                    <TableRow key={p.id} className="hover:bg-slate-50/60">
+                      <TableCell className="text-xs font-medium text-slate-500">
+                        {SYSTEM_PAGES.length + idx + 1}
+                      </TableCell>
+                      <TableCell className="text-xs font-bold text-slate-900 flex items-center gap-2">
+                        {p.title}
+                        {p.status === "DRAFT" && (
+                          <span className="bg-amber-100 text-amber-800 text-[10px] font-semibold px-2 py-0.5 rounded-full">
+                            Draft
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs font-mono text-slate-600">{pageUrl}</TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Link
+                            href={pageUrl}
+                            target="_blank"
+                            title="View Page"
+                            className="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-800 flex items-center justify-center transition-colors"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </Link>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">HTML Content *</label>
-              <Textarea
-                placeholder="<p>Detailed page text goes here...</p>"
-                value={newPage.content}
-                onChange={(e) => setNewPage({ ...newPage, content: e.target.value })}
-                rows={6}
-                required
-              />
-            </div>
+                          <Link
+                            href={`/admin/cms/pages/create?edit=${p.id}`}
+                            title="Edit Page"
+                            className="w-8 h-8 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-emerald-600 flex items-center justify-center transition-colors"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </Link>
 
-            <Button type="submit" disabled={isSubmitting} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold">
-              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save Page"}
-            </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
+                          {!isProtected && (
+                            <button
+                              onClick={() => handleDelete(p)}
+                              title="Delete Page"
+                              className="w-8 h-8 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 flex items-center justify-center transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 }

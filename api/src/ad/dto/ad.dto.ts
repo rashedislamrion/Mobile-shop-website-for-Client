@@ -1,31 +1,47 @@
 import {
+  IsBoolean,
   IsEnum,
   IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { AdPlacement, PromoAdStatus } from '@prisma/client';
 
 export class CreateAdDto {
-  @IsString()
-  @IsNotEmpty()
-  imageUrl: string;
-
   @IsString()
   @IsNotEmpty()
   title: string;
 
   @IsString()
   @IsOptional()
+  imageUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  thumbnailUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  mobileThumbnailUrl?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === 1 || value === '1')
+  @IsBoolean()
+  isFeatured?: boolean = false;
+
+  @IsString()
+  @IsOptional()
   description?: string;
 
   @IsEnum(AdPlacement)
-  placement: AdPlacement;
+  @IsOptional()
+  placement?: AdPlacement;
 
   @IsString()
-  @IsNotEmpty()
-  linkUrl: string;
+  @IsOptional()
+  linkUrl?: string;
 
   @IsString()
   @IsOptional()
@@ -43,11 +59,24 @@ export class CreateAdDto {
 export class UpdateAdDto {
   @IsString()
   @IsOptional()
+  title?: string;
+
+  @IsString()
+  @IsOptional()
   imageUrl?: string;
 
   @IsString()
   @IsOptional()
-  title?: string;
+  thumbnailUrl?: string;
+
+  @IsString()
+  @IsOptional()
+  mobileThumbnailUrl?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true' || value === 1 || value === '1')
+  @IsBoolean()
+  isFeatured?: boolean;
 
   @IsString()
   @IsOptional()
@@ -75,6 +104,11 @@ export class UpdateAdDto {
 }
 
 export class TrackAdDto {
-  @IsIn(['impression', 'click'])
-  type: 'impression' | 'click';
+  @IsString()
+  @IsOptional()
+  action?: 'impression' | 'click';
+
+  @IsString()
+  @IsOptional()
+  type?: 'impression' | 'click';
 }

@@ -1,11 +1,12 @@
 "use client";
 
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { XCircle, RefreshCw, ShoppingCart, HelpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-export default function PaymentFailedPage() {
+function PaymentFailedContent() {
   const searchParams = useSearchParams();
   const orderId = searchParams.get("orderId");
   const reason = searchParams.get("reason") || "Payment could not be completed";
@@ -54,5 +55,13 @@ export default function PaymentFailedPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function PaymentFailedPage() {
+  return (
+    <Suspense fallback={<div className="container mx-auto px-4 py-16 text-center text-slate-500">Loading...</div>}>
+      <PaymentFailedContent />
+    </Suspense>
   );
 }

@@ -28,16 +28,23 @@ export class PromoCodeService {
       where.code = { contains: query.search.trim(), mode: 'insensitive' };
     }
 
-    return this.prisma.promoCode.findMany({
+    const promos = await this.prisma.promoCode.findMany({
       where,
       orderBy: { validUntil: 'desc' },
     });
+    return promos.map((p) => ({
+      ...p,
+      singleUserLimit: p.perCustomerLimit,
+    }));
   }
 
   async findOne(id: string) {
     const promo = await this.prisma.promoCode.findUnique({ where: { id } });
     if (!promo) throw new NotFoundException(`Promo code with ID "${id}" not found.`);
-    return promo;
+    return {
+      ...promo,
+      singleUserLimit: promo.perCustomerLimit,
+    };
   }
 
   async create(dto: CreatePromoCodeDto) {
@@ -57,7 +64,7 @@ export class PromoCodeService {
         minOrderAmount: dto.minOrderAmount !== undefined ? dto.minOrderAmount : null,
         usageLimit: dto.usageLimit !== undefined ? dto.usageLimit : null,
         usedCount: 0,
-        perCustomerLimit: dto.perCustomerLimit !== undefined ? dto.perCustomerLimit : null,
+        perCustomerLimit: dto.singleUserLimit !== undefined ? dto.singleUserLimit : (dto.perCustomerLimit !== undefined ? dto.perCustomerLimit : null),
         applicableTo: dto.applicableTo || PromoApplicableTo.ALL,
         applicableCategoryId: dto.applicableCategoryId || null,
         applicableProductIds: dto.applicableProductIds || [],
@@ -92,7 +99,7 @@ export class PromoCodeService {
         maxDiscountCap: dto.maxDiscountCap !== undefined ? dto.maxDiscountCap : undefined,
         minOrderAmount: dto.minOrderAmount !== undefined ? dto.minOrderAmount : undefined,
         usageLimit: dto.usageLimit !== undefined ? dto.usageLimit : undefined,
-        perCustomerLimit: dto.perCustomerLimit !== undefined ? dto.perCustomerLimit : undefined,
+        perCustomerLimit: dto.singleUserLimit !== undefined ? dto.singleUserLimit : (dto.perCustomerLimit !== undefined ? dto.perCustomerLimit : undefined),
         applicableTo: dto.applicableTo,
         applicableCategoryId: dto.applicableCategoryId !== undefined ? dto.applicableCategoryId : undefined,
         applicableProductIds: dto.applicableProductIds,

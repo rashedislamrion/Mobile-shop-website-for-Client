@@ -8,7 +8,11 @@ import {
   Delete,
   Query,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { createMulterConfig, resolveUploadedFile } from '../common/upload/multer.config';
 import { BannerService } from './banner.service';
 import { CreateBannerDto, UpdateBannerDto, ReorderBannersDto } from './dto/banner.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -42,7 +46,14 @@ export class BannerController {
 
   @Post()
   @RequirePermission({ module: ModuleName.PROMOTIONAL_BANNER, action: PermissionAction.CREATE })
-  create(@Body() createBannerDto: CreateBannerDto) {
+  @UseInterceptors(FileInterceptor('image', createMulterConfig('banners')))
+  async create(
+    @Body() createBannerDto: CreateBannerDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (file) {
+      createBannerDto.imageUrl = (await resolveUploadedFile(file, 'banners')) || `/uploads/banners/${file.filename}`;
+    }
     return this.bannerService.create(createBannerDto);
   }
 
@@ -54,7 +65,15 @@ export class BannerController {
 
   @Patch(':id')
   @RequirePermission({ module: ModuleName.PROMOTIONAL_BANNER, action: PermissionAction.UPDATE })
-  update(@Param('id') id: string, @Body() updateBannerDto: UpdateBannerDto) {
+  @UseInterceptors(FileInterceptor('image', createMulterConfig('banners')))
+  async update(
+    @Param('id') id: string,
+    @Body() updateBannerDto: UpdateBannerDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (file) {
+      updateBannerDto.imageUrl = (await resolveUploadedFile(file, 'banners')) || `/uploads/banners/${file.filename}`;
+    }
     return this.bannerService.update(id, updateBannerDto);
   }
 

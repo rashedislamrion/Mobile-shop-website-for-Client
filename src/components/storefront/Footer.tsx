@@ -50,19 +50,19 @@ const platformIcons: Record<string, React.ReactNode> = {
 };
 
 export function Footer() {
-  const [footerSettings, setFooterSettings] = useState<any>(null);
+  const [footerData, setFooterData] = useState<any>(null);
   const [socialLinks, setSocialLinks] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
 
   useEffect(() => {
     (async () => {
       try {
-        const [settings, socials, branchList] = await Promise.all([
-          apiGet<any>("/footer-settings").catch(() => null),
+        const [footerPublic, socials, branchList] = await Promise.all([
+          apiGet<any>("/footer/public").catch(() => null),
           apiGet<any[]>("/social-links").catch(() => []),
           apiGet<any[]>("/branches/public").catch(() => []),
         ]);
-        setFooterSettings(settings);
+        setFooterData(footerPublic);
         setSocialLinks(socials || []);
         setBranches(branchList || []);
       } catch (e) {
@@ -70,6 +70,17 @@ export function Footer() {
       }
     })();
   }, []);
+
+  const footerSettings = footerData?.settings;
+  const columns: any[] = footerData?.columns || [];
+
+  const supportCol = columns.find((c) => c.key === "support");
+  const aboutCol = columns.find((c) => c.key === "about_us");
+  const quickCol = columns.find((c) => c.key === "quick_links");
+  const branchCol = columns.find((c) => c.key === "branches");
+
+  // First support contact item info
+  const supportContactItem = supportCol?.items?.[0];
 
   return (
     <footer className="bg-slate-900 text-slate-300">
@@ -135,25 +146,29 @@ export function Footer() {
             <div className="space-y-2 pt-2">
               <div className="flex items-center gap-3 text-sm">
                 <Phone className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                <span>{footerSettings?.supportPhone || "+880 1700-000000"}</span>
+                <span>
+                  {supportContactItem?.extraData?.phone ||
+                    footerSettings?.supportPhone ||
+                    "+880 1700-000000"}
+                </span>
               </div>
               <div className="flex items-center gap-3 text-sm">
                 <Mail className="w-4 h-4 text-emerald-400 flex-shrink-0" />
                 <span>{footerSettings?.supportEmail || "support@novamobile.com"}</span>
               </div>
-              {branches.length > 0 && (
-                <div className="flex items-start gap-3 text-sm">
-                  <MapPin className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
-                  <span>{branches[0].name} — {branches[0].address}</span>
+              {supportContactItem?.extraData?.availableTime && (
+                <div className="flex items-center gap-3 text-xs text-slate-400">
+                  <span className="font-medium text-slate-300">Support Hours:</span>
+                  <span>{supportContactItem.extraData.availableTime}</span>
                 </div>
               )}
             </div>
 
             {/* Social Links */}
-            {socialLinks.filter(s => s.url && s.url.trim() !== "" && s.url.trim() !== "#").length > 0 && (
+            {socialLinks.filter((s) => s.url && s.url.trim() !== "" && s.url.trim() !== "#").length > 0 && (
               <div className="flex items-center gap-3 pt-3">
                 {socialLinks
-                  .filter(s => s.url && s.url.trim() !== "" && s.url.trim() !== "#")
+                  .filter((s) => s.url && s.url.trim() !== "" && s.url.trim() !== "#")
                   .map((social) => (
                     <a
                       key={social.id}
@@ -170,33 +185,81 @@ export function Footer() {
             )}
           </div>
 
-          {/* Quick Links */}
+          {/* Quick Links Column */}
           <div className="space-y-3">
-            <h4 className="text-sm font-bold uppercase tracking-wider text-white">Quick Links</h4>
+            <h4 className="text-sm font-bold uppercase tracking-wider text-white">
+              {quickCol?.title || "Quick Links"}
+            </h4>
             <ul className="space-y-2 text-sm text-slate-400">
-              <li><Link href="/category/all" className="hover:text-emerald-400 transition-colors">All Products</Link></li>
-              <li><Link href="/blog" className="hover:text-emerald-400 transition-colors">News & Articles</Link></li>
-              <li><Link href="/about" className="hover:text-emerald-400 transition-colors">About Us</Link></li>
-              <li><Link href="/contact" className="hover:text-emerald-400 transition-colors">Contact Us</Link></li>
+              {quickCol?.items && quickCol.items.length > 0 ? (
+                quickCol.items.map((item: any) => (
+                  <li key={item.id}>
+                    <Link
+                      href={item.url || "#"}
+                      className="hover:text-emerald-400 transition-colors"
+                    >
+                      {item.navigationLabel}
+                    </Link>
+                  </li>
+                ))
+              ) : (
+                <>
+                  <li><Link href="/category/all" className="hover:text-emerald-400 transition-colors">All Products</Link></li>
+                  <li><Link href="/terms" className="hover:text-emerald-400 transition-colors">Terms of Service</Link></li>
+                  <li><Link href="/privacy" className="hover:text-emerald-400 transition-colors">Privacy Policy</Link></li>
+                </>
+              )}
             </ul>
           </div>
 
-          {/* Customer Service */}
+          {/* About Us / Information Column */}
           <div className="space-y-3">
-            <h4 className="text-sm font-bold uppercase tracking-wider text-white">Customer Support</h4>
+            <h4 className="text-sm font-bold uppercase tracking-wider text-white">
+              {aboutCol?.title || "About Us"}
+            </h4>
             <ul className="space-y-2 text-sm text-slate-400">
-              <li><Link href="/account/support" className="hover:text-emerald-400 transition-colors">Support Tickets</Link></li>
-              <li><Link href="/account/orders" className="hover:text-emerald-400 transition-colors">Track Your Order</Link></li>
-              <li><Link href="/terms" className="hover:text-emerald-400 transition-colors">Terms of Service</Link></li>
-              <li><Link href="/privacy" className="hover:text-emerald-400 transition-colors">Privacy Policy</Link></li>
+              {aboutCol?.items && aboutCol.items.length > 0 ? (
+                aboutCol.items.map((item: any) => (
+                  <li key={item.id}>
+                    <Link
+                      href={item.url || "#"}
+                      className="hover:text-emerald-400 transition-colors"
+                    >
+                      {item.navigationLabel}
+                    </Link>
+                  </li>
+                ))
+              ) : (
+                <>
+                  <li><Link href="/about" className="hover:text-emerald-400 transition-colors">About Us</Link></li>
+                  <li><Link href="/blog" className="hover:text-emerald-400 transition-colors">News & Articles</Link></li>
+                  <li><Link href="/contact" className="hover:text-emerald-400 transition-colors">Contact Us</Link></li>
+                </>
+              )}
             </ul>
           </div>
 
-          {/* Outlets */}
+          {/* Outlets / Branches Column */}
           <div className="space-y-3">
-            <h4 className="text-sm font-bold uppercase tracking-wider text-white">Our Outlets</h4>
-            <ul className="space-y-2 text-sm text-slate-400">
-              {branches.length > 0 ? (
+            <h4 className="text-sm font-bold uppercase tracking-wider text-white">
+              {branchCol?.title || "Our Outlets"}
+            </h4>
+            <ul className="space-y-3 text-sm text-slate-400">
+              {branchCol?.items && branchCol.items.length > 0 ? (
+                branchCol.items.map((item: any) => (
+                  <li key={item.id} className="text-xs">
+                    <span className="font-semibold text-slate-200 block">
+                      {item.extraData?.name || item.navigationLabel}
+                    </span>
+                    {item.extraData?.location && (
+                      <span className="text-slate-400 truncate block">{item.extraData.location}</span>
+                    )}
+                    {item.extraData?.phone && (
+                      <span className="text-emerald-400 text-[11px] block">{item.extraData.phone}</span>
+                    )}
+                  </li>
+                ))
+              ) : branches.length > 0 ? (
                 branches.slice(0, 4).map((b) => (
                   <li key={b.id} className="text-xs">
                     <span className="font-semibold text-slate-200 block">{b.name}</span>
@@ -205,9 +268,14 @@ export function Footer() {
                 ))
               ) : (
                 <>
-                  <li>Bashundhara City Complex</li>
-                  <li>Motijheel Flagship</li>
-                  <li>Uttara Hub</li>
+                  <li className="text-xs">
+                    <span className="font-semibold text-slate-200 block">Bashundhara City Complex</span>
+                    <span className="text-slate-400 block">Level 4, Panthapath, Dhaka</span>
+                  </li>
+                  <li className="text-xs">
+                    <span className="font-semibold text-slate-200 block">Motijheel Flagship</span>
+                    <span className="text-slate-400 block">Dilkusha C/A, Motijheel, Dhaka</span>
+                  </li>
                 </>
               )}
             </ul>

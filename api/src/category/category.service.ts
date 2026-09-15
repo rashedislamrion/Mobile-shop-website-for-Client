@@ -4,6 +4,7 @@ import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { slugify } from '../common/utils/slug.util';
 import { Prisma, StaffStatus } from '@prisma/client';
+import { resolveUploadedFile } from '../common/upload/multer.config';
 
 @Injectable()
 export class CategoryService {
@@ -85,7 +86,7 @@ export class CategoryService {
       slug = `category-${Date.now()}`;
     }
 
-    const imagePath = file ? `/uploads/categories/${file.filename}` : dto.image || null;
+    const imagePath = file ? ((await resolveUploadedFile(file, 'categories')) || `/uploads/categories/${file.filename}`) : dto.image || null;
     const parentId = dto.parentId && dto.parentId !== 'null' && dto.parentId !== '' ? dto.parentId : null;
 
     try {
@@ -96,6 +97,12 @@ export class CategoryService {
           parentId,
           icon: dto.icon || null,
           image: imagePath,
+          altTag: dto.altTag || null,
+          description: dto.description || null,
+          isGadget: dto.isGadget !== undefined ? dto.isGadget : false,
+          featured: dto.featured !== undefined ? dto.featured : false,
+          metaTitle: dto.metaTitle || null,
+          metaDescription: dto.metaDescription || null,
           status: dto.status || StaffStatus.ACTIVE,
         },
         include: {
@@ -117,10 +124,16 @@ export class CategoryService {
     if (dto.name !== undefined) data.name = dto.name;
     if (dto.slug !== undefined) data.slug = slugify(dto.slug);
     if (dto.icon !== undefined) data.icon = dto.icon;
+    if (dto.altTag !== undefined) data.altTag = dto.altTag || null;
+    if (dto.description !== undefined) data.description = dto.description || null;
+    if (dto.isGadget !== undefined) data.isGadget = dto.isGadget;
+    if (dto.featured !== undefined) data.featured = dto.featured;
+    if (dto.metaTitle !== undefined) data.metaTitle = dto.metaTitle || null;
+    if (dto.metaDescription !== undefined) data.metaDescription = dto.metaDescription || null;
     if (dto.status !== undefined) data.status = dto.status;
 
     if (file) {
-      data.image = `/uploads/categories/${file.filename}`;
+      data.image = (await resolveUploadedFile(file, 'categories')) || `/uploads/categories/${file.filename}`;
     } else if (dto.image !== undefined) {
       data.image = dto.image;
     }
@@ -179,6 +192,56 @@ export class CategoryService {
 
     return this.prisma.category.delete({
       where: { id },
+    });
+  }
+
+  async removeBulk(ids: string[]) {
+    if (!ids || ids.length === 0) {
+      return { count: 0 };
+    }
+
+    const categories = await this.prisma.category.findMany({
+      where: { id: { in: ids } },
+      include: {
+        children: true,
+        products: { select: { id: true } },
+      },
+    });
+
+    if (categories.length === 0) {
+      return { count: 0 };
+    }
+
+    const conflicts: string[] = [];
+    categories.forEach((cat) => {
+      const issues: string[] = [];
+      const unselectedChildren = cat.children.filter((ch) => !ids.includes(ch.id));
+      if (unselectedChildren.length > 0) {
+        issues.push(`${unselectedChildren.length} child category(ies) not selected for deletion`);
+      }
+      if (cat.products.length > 0) {
+        issues.push(`${cat.products.length} linked product(s)`);
+      }
+      if (issues.length > 0) {
+        conflicts.push(`"${cat.name}" has ${issues.join(' and ')}`);
+      }
+    });
+
+    if (conflicts.length > 0) {
+      throw new ConflictException(
+        `Cannot delete selected categories: ${conflicts.join(', ')}. Please remove or reassign them first.`,
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.category.updateMany({
+        where: { id: { in: ids } },
+        data: { parentId: null },
+      });
+      const result = await tx.category.deleteMany({
+        where: { id: { in: ids } },
+      });
+      return { count: result.count };
     });
   }
 }

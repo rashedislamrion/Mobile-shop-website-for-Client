@@ -16,9 +16,38 @@ export declare class AuthController {
     }>;
     loginStaff(dto: LoginDto, res: Response): Promise<{
         accessToken: string;
+        user: {
+            id: string;
+            name: string;
+            email: string;
+            phone: string;
+            userType: string;
+            role: {
+                id: string;
+                name: string;
+                createdAt: Date;
+                updatedAt: Date;
+                description: string | null;
+                scope: import(".prisma/client").$Enums.PermissionScope;
+                isSystem: boolean;
+            };
+            branchId: string | null;
+        };
+    }>;
+    refreshCustomerTokens(req: Request, res: Response): Promise<{
+        accessToken: string;
+    }>;
+    refreshStaffTokens(req: Request, res: Response): Promise<{
+        accessToken: string;
     }>;
     refreshTokens(req: Request, res: Response): Promise<{
         accessToken: string;
+    }>;
+    customerLogout(req: Request, res: Response, userId: string): Promise<{
+        success: boolean;
+    }>;
+    staffLogout(req: Request, res: Response, userId: string): Promise<{
+        success: boolean;
     }>;
     logout(req: Request, res: Response, userId: string): Promise<{
         success: boolean;
@@ -49,27 +78,27 @@ export declare class AuthController {
                 allowed: boolean;
             }[];
         } & {
-            name: string;
             id: string;
+            name: string;
+            createdAt: Date;
+            updatedAt: Date;
             description: string | null;
             scope: import(".prisma/client").$Enums.PermissionScope;
             isSystem: boolean;
-            createdAt: Date;
-            updatedAt: Date;
         };
         branch: {
-            name: string;
             id: string;
+            name: string;
+            status: import(".prisma/client").$Enums.StaffStatus;
             createdAt: Date;
             updatedAt: Date;
-            email: string | null;
-            phone: string;
-            status: import(".prisma/client").$Enums.StaffStatus;
             code: string;
             type: import(".prisma/client").$Enums.BranchType;
             address: string;
             city: string;
+            phone: string;
             altPhone: string | null;
+            email: string | null;
             managerId: string | null;
             operatingHours: import("@prisma/client/runtime/library").JsonValue | null;
             openingStockValue: import("@prisma/client/runtime/library").Decimal;
@@ -77,14 +106,16 @@ export declare class AuthController {
             showInFooter: boolean;
             isOnlineDefault: boolean;
         } | null;
-        name: string;
         id: string;
+        name: string;
+        status: import(".prisma/client").$Enums.StaffStatus;
         createdAt: Date;
         updatedAt: Date;
         roleId: string;
-        employeeId: string;
-        email: string;
+        address: string | null;
         phone: string;
+        email: string;
+        employeeId: string;
         passwordHash: string;
         photo: string | null;
         gender: string | null;
@@ -95,25 +126,37 @@ export declare class AuthController {
         employmentType: import(".prisma/client").$Enums.EmploymentType;
         joiningDate: Date;
         reportingManagerId: string | null;
-        status: import(".prisma/client").$Enums.StaffStatus;
         basicSalary: import("@prisma/client/runtime/library").Decimal;
         allowances: import("@prisma/client/runtime/library").JsonValue | null;
         paymentMethod: import(".prisma/client").$Enums.StaffPaymentMethod | null;
         bankAccountNo: string | null;
-        specializations: string[];
+        birthCertificateUrl: string | null;
+        bonusLimit: import("@prisma/client/runtime/library").Decimal;
+        adminPanelAccess: boolean;
+        isTechnician: boolean;
+        commissionRate: import("@prisma/client/runtime/library").Decimal;
+        profitSharePercentage: import("@prisma/client/runtime/library").Decimal | null;
+        emergencyContactName: string | null;
+        emergencyContactPhone: string | null;
+        emergencyContactRelationship: string | null;
+        sendCredentialsEmailOnCreate: boolean;
     } | {
         userType: string;
-        name: string;
         id: string;
+        name: string;
+        status: import(".prisma/client").$Enums.StaffStatus;
         createdAt: Date;
         updatedAt: Date;
-        email: string;
         phone: string;
+        email: string | null;
         passwordHash: string;
         photo: string | null;
-        status: import(".prisma/client").$Enums.StaffStatus;
+        profileImageUrl: string | null;
+        source: string | null;
+        walletBalance: import("@prisma/client/runtime/library").Decimal;
         emailVerified: boolean;
         phoneVerified: boolean;
     } | null>;
-    private setRefreshTokenCookie;
+    private setCustomerRefreshTokenCookie;
+    private setStaffRefreshTokenCookie;
 }

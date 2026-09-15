@@ -50,6 +50,7 @@ export class SeriesService {
       data: {
         name: dto.name,
         brandId: dto.brandId,
+        status: dto.status || 'ACTIVE',
       },
       include: {
         brand: true,

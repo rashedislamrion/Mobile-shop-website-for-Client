@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Req, Res, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Get, Req, Res, UseGuards, UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { RegisterCustomerDto } from './dto/register-customer.dto';
 import { LoginDto } from './dto/login.dto';
@@ -20,7 +20,7 @@ export class AuthController {
   @Post('customer/register')
   async registerCustomer(@Body() dto: RegisterCustomerDto, @Res({ passthrough: true }) res: Response) {
     const { accessToken, refreshToken } = await this.authService.registerCustomer(dto);
-    this.setRefreshTokenCookie(res, refreshToken);
+    this.setCustomerRefreshTokenCookie(res, refreshToken);
     return { accessToken };
   }
 
@@ -29,35 +29,96 @@ export class AuthController {
   @Post('customer/login')
   async loginCustomer(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const { accessToken, refreshToken } = await this.authService.loginCustomer(dto);
-    this.setRefreshTokenCookie(res, refreshToken);
+    this.setCustomerRefreshTokenCookie(res, refreshToken);
     return { accessToken };
   }
 
   @Public()
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Throttle({ default: { limit: 100, ttl: 60000 } })
   @Post('staff/login')
   async loginStaff(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
-    const { accessToken, refreshToken } = await this.authService.loginStaff(dto);
-    this.setRefreshTokenCookie(res, refreshToken);
+    const { accessToken, refreshToken, user } = await this.authService.loginStaff(dto);
+    this.setStaffRefreshTokenCookie(res, refreshToken);
+    return { accessToken, user };
+  }
+
+  @Public()
+  @Post('customer/refresh')
+  async refreshCustomerTokens(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const token = req.cookies?.['customer_refresh_token'] || req.cookies?.['refresh_token'];
+    if (!token) throw new UnauthorizedException('No customer refresh token provided');
+    const { accessToken, refreshToken } = await this.authService.refreshTokens(token);
+    this.setCustomerRefreshTokenCookie(res, refreshToken);
+    return { accessToken };
+  }
+
+  @Public()
+  @Post('staff/refresh')
+  async refreshStaffTokens(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const token = req.cookies?.['staff_refresh_token'] || req.cookies?.['refresh_token'];
+    if (!token) throw new UnauthorizedException('No staff refresh token provided');
+    const { accessToken, refreshToken } = await this.authService.refreshTokens(token);
+    this.setStaffRefreshTokenCookie(res, refreshToken);
     return { accessToken };
   }
 
   @Public()
   @Post('refresh')
   async refreshTokens(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    const oldRefreshToken = req.cookies?.['refresh_token'];
-    const { accessToken, refreshToken } = await this.authService.refreshTokens(oldRefreshToken);
-    this.setRefreshTokenCookie(res, refreshToken);
+    const token =
+      req.cookies?.['staff_refresh_token'] ||
+      req.cookies?.['customer_refresh_token'] ||
+      req.cookies?.['refresh_token'];
+    if (!token) throw new UnauthorizedException('No refresh token provided');
+    const { accessToken, refreshToken } = await this.authService.refreshTokens(token);
+    if (req.cookies?.['staff_refresh_token']) {
+      this.setStaffRefreshTokenCookie(res, refreshToken);
+    } else {
+      this.setCustomerRefreshTokenCookie(res, refreshToken);
+    }
     return { accessToken };
+  }
+
+  @Post('customer/logout')
+  async customerLogout(@Req() req: Request, @Res({ passthrough: true }) res: Response, @CurrentUser('sub') userId: string) {
+    const refreshToken = req.cookies?.['customer_refresh_token'] || req.cookies?.['refresh_token'];
+    if (refreshToken && userId) {
+      await this.authService.logout(refreshToken, userId);
+    }
+    const isProd = process.env.NODE_ENV === 'production';
+    const clearOpts = { path: '/', secure: isProd, sameSite: isProd ? ('none' as const) : ('lax' as const) };
+    res.clearCookie('customer_refresh_token', clearOpts);
+    res.clearCookie('refresh_token', clearOpts);
+    return { success: true };
+  }
+
+  @Post('staff/logout')
+  async staffLogout(@Req() req: Request, @Res({ passthrough: true }) res: Response, @CurrentUser('sub') userId: string) {
+    const refreshToken = req.cookies?.['staff_refresh_token'] || req.cookies?.['refresh_token'];
+    if (refreshToken && userId) {
+      await this.authService.logout(refreshToken, userId);
+    }
+    const isProd = process.env.NODE_ENV === 'production';
+    const clearOpts = { path: '/', secure: isProd, sameSite: isProd ? ('none' as const) : ('lax' as const) };
+    res.clearCookie('staff_refresh_token', clearOpts);
+    res.clearCookie('refresh_token', clearOpts);
+    return { success: true };
   }
 
   @Post('logout')
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response, @CurrentUser('sub') userId: string) {
-    const refreshToken = req.cookies?.['refresh_token'];
-    if (refreshToken) {
+    const refreshToken =
+      req.cookies?.['staff_refresh_token'] ||
+      req.cookies?.['customer_refresh_token'] ||
+      req.cookies?.['refresh_token'];
+    if (refreshToken && userId) {
       await this.authService.logout(refreshToken, userId);
     }
-    res.clearCookie('refresh_token');
+    const isProd = process.env.NODE_ENV === 'production';
+    const clearOpts = { path: '/', secure: isProd, sameSite: isProd ? ('none' as const) : ('lax' as const) };
+    res.clearCookie('customer_refresh_token', clearOpts);
+    res.clearCookie('staff_refresh_token', clearOpts);
+    res.clearCookie('refresh_token', clearOpts);
     return { success: true };
   }
 
@@ -88,11 +149,24 @@ export class AuthController {
     return this.authService.getMe(userId, userType);
   }
 
-  private setRefreshTokenCookie(res: Response, token: string) {
-    res.cookie('refresh_token', token, {
+  private setCustomerRefreshTokenCookie(res: Response, token: string) {
+    const isProd = process.env.NODE_ENV === 'production';
+    res.cookie('customer_refresh_token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
+      secure: isProd,
+      sameSite: isProd ? 'none' : 'lax',
+      path: '/',
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+  }
+
+  private setStaffRefreshTokenCookie(res: Response, token: string) {
+    const isProd = process.env.NODE_ENV === 'production';
+    res.cookie('staff_refresh_token', token, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? 'none' : 'lax',
+      path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
   }

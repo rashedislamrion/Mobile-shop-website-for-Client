@@ -1,12 +1,30 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
-import { FilterBar } from "@/components/admin/FilterBar";
-import { DataTable, StatusBadge, ActionDropdown } from "@/components/admin/DataTable";
-import { FilterConfig, StatusVariant, TableAction } from "@/types/table";
-import { ColumnDef } from "@tanstack/react-table";
-import { Edit, Trash2, Plus, Key, Eye } from "lucide-react";
+import {
+  User,
+  Plus,
+  Search,
+  RotateCcw,
+  Edit,
+  Trash2,
+  Key,
+  Eye,
+  Building2,
+  Phone,
+  Mail,
+  Shield,
+  Sparkles,
+  CheckCircle2,
+  XCircle,
+  MoreVertical,
+  Check,
+  Copy,
+  ExternalLink,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -16,7 +34,17 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface EmployeeRecord {
   id: string;
@@ -24,54 +52,79 @@ interface EmployeeRecord {
   name: string;
   email: string;
   phone: string;
+  address?: string | null;
   photo?: string | null;
+  birthCertificateUrl?: string | null;
   gender?: string | null;
+  dob?: string | null;
+  nidNumber?: string | null;
   status: string;
+  access?: string; // "Admin" | "Branch Only"
+  adminPanelAccess?: boolean;
+  isTechnician?: boolean;
+  commissionRate?: number | string;
+  bonusLimit?: number | string;
+  emergencyContactName?: string | null;
+  emergencyContactPhone?: string | null;
+  emergencyContactRelationship?: string | null;
   employmentType: string;
   joiningDate: string;
   basicSalary?: number | string;
   department?: { id: string; name: string } | null;
   role?: { id: string; name: string; scope: string } | null;
   branch?: { id: string; name: string; code: string } | null;
+  branchAccess?: Array<{
+    id: string;
+    branchId: string;
+    branch: { id: string; name: string; code: string };
+  }>;
 }
 
 export default function EmployeesPage() {
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
   const router = useRouter();
-  
+
   const [data, setData] = useState<EmployeeRecord[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filters, setFilters] = useState<Record<string, unknown>>({});
 
-  const [departments, setDepartments] = useState<{ label: string; value: string }[]>([]);
-  const [roles, setRoles] = useState<{ label: string; value: string }[]>([]);
-  const [branches, setBranches] = useState<{ label: string; value: string }[]>([]);
+  // Filters
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedDept, setSelectedDept] = useState("all");
+  const [selectedRole, setSelectedRole] = useState("all");
+  const [selectedBranch, setSelectedBranch] = useState("all");
+  const [selectedStatus, setSelectedStatus] = useState("all");
 
+  const [departments, setDepartments] = useState<any[]>([]);
+  const [roles, setRoles] = useState<any[]>([]);
+  const [branches, setBranches] = useState<any[]>([]);
+
+  // Selection for bulk actions
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  // Modals
+  const [detailsModalEmployee, setDetailsModalEmployee] = useState<EmployeeRecord | null>(null);
   const [resetModalInfo, setResetModalInfo] = useState<{ name: string; tempPass: string } | null>(null);
+  const [hasCopiedPass, setHasCopiedPass] = useState(false);
 
   useEffect(() => {
     setTitle("Employees");
-    setBadge("Website");
-    setDateFilter(""); 
+    setBadge("HRM");
+    setDateFilter("");
   }, [setTitle, setBadge, setDateFilter]);
 
   useEffect(() => {
     Promise.all([
       apiGet<any[]>("/departments"),
       apiGet<any[]>("/roles"),
-      apiGet<any[]>("/branches/public"),
+      apiGet<any[]>("/branches"),
     ])
       .then(([deptRes, roleRes, branchRes]) => {
-        if (Array.isArray(deptRes)) {
-          setDepartments(deptRes.map((d) => ({ label: d.name, value: d.id })));
-        }
-        if (Array.isArray(roleRes)) {
-          setRoles(roleRes.map((r) => ({ label: r.name, value: r.id })));
-        }
-        if (Array.isArray(branchRes)) {
-          setBranches(branchRes.map((b) => ({ label: b.name, value: b.id })));
-        }
+        setDepartments(Array.isArray(deptRes) ? deptRes : []);
+        setRoles(Array.isArray(roleRes) ? roleRes : []);
+        setBranches(Array.isArray(branchRes) ? branchRes : []);
       })
       .catch(() => {});
   }, []);
@@ -79,249 +132,716 @@ export default function EmployeesPage() {
   const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
-      const params: Record<string, any> = {};
-      if (filters.department) params.department = filters.department;
-      if (filters.role) params.role = filters.role;
-      if (filters.branch) params.branch = filters.branch;
-      if (filters.status) params.status = (filters.status as string).toUpperCase();
-      if (searchQuery.trim()) params.search = searchQuery.trim();
+      const params: Record<string, any> = {
+        page: currentPage,
+        limit: 15,
+      };
+      if (selectedDept !== "all") params.department = selectedDept;
+      if (selectedRole !== "all") params.role = selectedRole;
+      if (selectedBranch !== "all") params.branch = selectedBranch;
+      if (selectedStatus !== "all") params.status = selectedStatus;
+      if (searchTerm.trim()) params.search = searchTerm.trim();
 
-      const res = await apiGet<{ data: EmployeeRecord[] }>("/employees", params);
+      const res = await apiGet<{ data: EmployeeRecord[]; meta?: { total: number; totalPages: number } }>(
+        "/employees",
+        params,
+      );
       setData(res?.data || []);
+      setTotalCount(res?.meta?.total || (res?.data || []).length);
+      setTotalPages(res?.meta?.totalPages || 1);
     } catch (err: any) {
       toast.error(err.message || "Failed to load employees");
     } finally {
       setIsLoading(false);
     }
-  }, [filters, searchQuery]);
+  }, [currentPage, selectedDept, selectedRole, selectedBranch, selectedStatus, searchTerm]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
-  const handleResetPassword = async (row: EmployeeRecord) => {
+  const handleSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCurrentPage(1);
+    loadData();
+  };
+
+  const handleResetFilters = () => {
+    setSearchTerm("");
+    setSelectedDept("all");
+    setSelectedRole("all");
+    setSelectedBranch("all");
+    setSelectedStatus("all");
+    setCurrentPage(1);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === data.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(data.map((e) => e.id));
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    if (selectedIds.includes(id)) {
+      setSelectedIds(selectedIds.filter((item) => item !== id));
+    } else {
+      setSelectedIds([...selectedIds, id]);
+    }
+  };
+
+  const handleBulkStatusChange = async (newStatus: "ACTIVE" | "INACTIVE") => {
+    if (selectedIds.length === 0) return;
+    try {
+      await Promise.all(
+        selectedIds.map((id) =>
+          apiPatch(`/employees/${id}/status`, { status: newStatus }),
+        ),
+      );
+      toast.success(`Updated status for ${selectedIds.length} employees to ${newStatus}`);
+      setSelectedIds([]);
+      loadData();
+    } catch (err: any) {
+      toast.error(err.message || "Bulk update failed");
+    }
+  };
+
+  const handleToggleStatus = async (emp: EmployeeRecord) => {
+    const nextStatus = emp.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+    try {
+      await apiPatch(`/employees/${emp.id}/status`, { status: nextStatus });
+      toast.success(`${emp.name} is now ${nextStatus}`);
+      loadData();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update status");
+    }
+  };
+
+  const handleResetPassword = async (emp: EmployeeRecord) => {
     try {
       const res = await apiPatch<{ message: string; tempPassword: string }>(
-        `/employees/${row.id}/reset-password`,
+        `/employees/${emp.id}/reset-password`,
+        {},
       );
-      setResetModalInfo({ name: row.name, tempPass: res.tempPassword });
-      toast.success("Password reset successfully");
+      setResetModalInfo({ name: emp.name, tempPass: res.tempPassword });
+      setHasCopiedPass(false);
     } catch (err: any) {
       toast.error(err.message || "Failed to reset password");
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDeleteEmployee = async (emp: EmployeeRecord) => {
+    if (!confirm(`Are you sure you want to delete ${emp.name}? This cannot be undone.`)) {
+      return;
+    }
     try {
-      await apiDelete(`/employees/${id}`);
-      toast.success("Employee removed successfully");
+      await apiDelete(`/employees/${emp.id}`);
+      toast.success(`${emp.name} deleted successfully`);
       loadData();
     } catch (err: any) {
-      toast.error(err.message || "Failed to remove employee");
+      toast.error(err.message || "Failed to delete employee");
     }
   };
 
-  const filterConfigs: FilterConfig[] = useMemo(() => [
-    {
-      type: "select",
-      label: "Department",
-      key: "department",
-      options: departments,
-    },
-    {
-      type: "select",
-      label: "Role",
-      key: "role",
-      options: roles,
-    },
-    {
-      type: "select",
-      label: "Branch",
-      key: "branch",
-      options: branches,
-    },
-    {
-      type: "select",
-      label: "Status",
-      key: "status",
-      options: [
-        { label: "Active", value: "ACTIVE" },
-        { label: "Inactive", value: "INACTIVE" },
-        { label: "On Leave", value: "ON_LEAVE" },
-      ],
-    },
-  ], [departments, roles, branches]);
-
-  const createActions = (): TableAction[] => [
-    {
-      label: "Edit Profile",
-      icon: <Edit className="w-4 h-4" />,
-      onClick: (row) => router.push(`/admin/hrm/employees/${row.id}/edit`),
-    },
-    {
-      label: "Reset Password",
-      icon: <Key className="w-4 h-4 text-amber-600" />,
-      onClick: (row) => handleResetPassword(row),
-    },
-    {
-      label: "Delete",
-      icon: <Trash2 className="w-4 h-4 text-red-500" />,
-      variant: "destructive",
-      onClick: (row) => handleDelete(row.id),
-    },
-  ];
-
-  const getStatusVariant = (status: string): StatusVariant => {
-    switch (status) {
-      case "ACTIVE":
-      case "Active": return "success";
-      case "ON_LEAVE":
-      case "On Leave": return "warning";
-      case "INACTIVE":
-      case "Inactive": return "default";
-      default: return "info";
-    }
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setHasCopiedPass(true);
+    toast.success("Temporary password copied to clipboard");
+    setTimeout(() => setHasCopiedPass(false), 2500);
   };
-
-  const columns: ColumnDef<EmployeeRecord>[] = [
-    {
-      accessorKey: "employeeId",
-      header: "EMP ID",
-      cell: ({ row }) => (
-        <span className="font-mono font-bold text-slate-800">
-          {row.original.employeeId}
-        </span>
-      ),
-    },
-    {
-      accessorKey: "name",
-      header: "Employee",
-      cell: ({ row }) => (
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center font-bold text-xs text-slate-600 border border-slate-200">
-            {row.original.name.charAt(0)}
-          </div>
-          <div>
-            <p className="font-semibold text-slate-800 leading-tight">{row.original.name}</p>
-            <p className="text-xs text-slate-400">{row.original.email}</p>
-          </div>
-        </div>
-      ),
-    },
-    {
-      accessorKey: "phone",
-      header: "Phone",
-      cell: ({ row }) => <span className="text-slate-600 font-mono text-sm">{row.original.phone}</span>,
-    },
-    {
-      accessorKey: "department",
-      header: "Department",
-      cell: ({ row }) => (
-        <span className="text-slate-700 text-sm">
-          {row.original.department?.name || <span className="text-slate-400 italic">None</span>}
-        </span>
-      ),
-    },
-    {
-      accessorKey: "role",
-      header: "Role",
-      cell: ({ row }) => (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">
-          {row.original.role?.name || "No Role"}
-        </span>
-      ),
-    },
-    {
-      accessorKey: "branch",
-      header: "Branch",
-      cell: ({ row }) => (
-        <span className="text-slate-600 text-sm">
-          {row.original.branch?.name || "Global"}
-        </span>
-      ),
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => (
-        <StatusBadge 
-          status={row.original.status} 
-          type={getStatusVariant(row.original.status)} 
-        />
-      ),
-    },
-    {
-      id: "actions",
-      header: "Action",
-      cell: ({ row }) => (
-        <div className="flex justify-end">
-          <ActionDropdown actions={createActions()} rowData={row.original} />
-        </div>
-      ),
-    },
-  ];
 
   return (
     <div className="space-y-6">
-      {/* Top Header / Action Bar */}
-      <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200">
+      {/* Top Banner / Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-lg font-bold text-slate-800">All Employees</h2>
-          <p className="text-xs text-slate-500">Manage your staff roster, roles, and branch assignments</p>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2.5">
+            <User className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+            Employees Management
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Total {totalCount} registered team members across branches
+          </p>
         </div>
-        <Link 
-          href="/admin/hrm/employees/create"
-          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-        >
-          <Plus className="w-4 h-4" /> Add Employee
-        </Link>
+        <div className="flex items-center gap-3">
+          {selectedIds.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-muted hover:bg-muted/80 text-foreground border border-border flex items-center gap-1.5 transition-colors">
+                  <span>Bulk Actions ({selectedIds.length})</span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem
+                  onClick={() => handleBulkStatusChange("ACTIVE")}
+                  className="text-emerald-600 cursor-pointer"
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  Mark as Active
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => handleBulkStatusChange("INACTIVE")}
+                  className="text-red-600 cursor-pointer"
+                >
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Mark as Inactive
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          <Link
+            href="/admin/hrm/employees/create"
+            className="px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-2 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Add Employee
+          </Link>
+        </div>
       </div>
 
-      <FilterBar 
-        searchPlaceholder="Search by name, ID, email, phone..."
-        filters={filterConfigs}
-        onSearchChange={(val) => setSearchQuery(val)}
-        onFilterChange={(key, val) => setFilters((prev) => ({ ...prev, [key]: val }))}
-        onReset={() => {
-          setSearchQuery("");
-          setFilters({});
-        }}
-      />
-
-      <DataTable 
-        columns={columns} 
-        data={data} 
-        pageSize={10}
-      />
-
-      {/* Password Reset Modal */}
-      <Dialog open={Boolean(resetModalInfo)} onOpenChange={(open) => !open && setResetModalInfo(null)}>
-        <DialogContent className="sm:max-w-[400px]">
-          <DialogHeader>
-            <DialogTitle>Temporary Password Generated</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 pt-2">
-            <p className="text-sm text-slate-600">
-              A new temporary password has been set for <strong className="text-slate-900">{resetModalInfo?.name}</strong>.
-            </p>
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-center">
-              <p className="text-xs font-semibold text-amber-800 uppercase tracking-wider mb-1">Temporary Password</p>
-              <code className="text-lg font-mono font-bold text-amber-900 select-all">{resetModalInfo?.tempPass}</code>
-            </div>
-            <p className="text-xs text-slate-400 italic">
-              Please convey this temporary password to the employee. They will be required to change it on their next login.
-            </p>
-            <div className="flex justify-end pt-2">
-              <button
-                onClick={() => setResetModalInfo(null)}
-                className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800"
-              >
-                Done
-              </button>
-            </div>
+      {/* Filter Bar */}
+      <div className="p-4 rounded-xl border border-border bg-card shadow-xs space-y-3">
+        <form onSubmit={handleSearchSubmit} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+          {/* Search */}
+          <div className="relative sm:col-span-2 md:col-span-2">
+            <Search className="h-4 w-4 absolute left-3 top-3 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search by name, ID, phone, email..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full h-10 pl-9 pr-3 text-sm rounded-lg border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            />
           </div>
-        </DialogContent>
-      </Dialog>
+
+          {/* Department */}
+          <div>
+            <select
+              value={selectedDept}
+              onChange={(e) => {
+                setSelectedDept(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full h-10 px-3 py-2 text-sm rounded-lg border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="all">All Departments</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Role */}
+          <div>
+            <select
+              value={selectedRole}
+              onChange={(e) => {
+                setSelectedRole(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full h-10 px-3 py-2 text-sm rounded-lg border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="all">All Roles</option>
+              {roles.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Status & Reset */}
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedStatus}
+              onChange={(e) => {
+                setSelectedStatus(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full h-10 px-3 py-2 text-sm rounded-lg border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="all">All Statuses</option>
+              <option value="ACTIVE">Active</option>
+              <option value="INACTIVE">Inactive</option>
+            </select>
+
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              title="Reset Filters"
+              className="h-10 px-3 flex items-center justify-center rounded-lg border border-border bg-background hover:bg-muted text-muted-foreground transition-colors shrink-0"
+            >
+              <RotateCcw className="h-4 w-4" />
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Table */}
+      <div className="rounded-xl border border-border bg-card shadow-xs overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-muted/50 border-b border-border text-xs uppercase text-muted-foreground font-semibold">
+              <tr>
+                <th className="p-4 w-10">
+                  <Checkbox
+                    checked={data.length > 0 && selectedIds.length === data.length}
+                    onCheckedChange={toggleSelectAll}
+                    aria-label="Select all"
+                  />
+                </th>
+                <th className="p-4 font-semibold tracking-wider">Employee</th>
+                <th className="p-4 font-semibold tracking-wider">Contact & Address</th>
+                <th className="p-4 font-semibold tracking-wider">Dept & Role</th>
+                <th className="p-4 font-semibold tracking-wider">Access</th>
+                <th className="p-4 font-semibold tracking-wider text-center">Status</th>
+                <th className="p-4 font-semibold tracking-wider text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border text-foreground">
+              {isLoading ? (
+                <tr>
+                  <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="h-5 w-5 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+                      <span>Loading team members...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : data.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                    No employees found matching the current search & filters.
+                  </td>
+                </tr>
+              ) : (
+                data.map((emp) => {
+                  const isSelected = selectedIds.includes(emp.id);
+                  const accessLabel = emp.access || (emp.role?.scope === "GLOBAL" ? "Admin" : "Branch Only");
+                  const isAdmin = accessLabel === "Admin";
+
+                  return (
+                    <tr
+                      key={emp.id}
+                      className={`hover:bg-muted/30 transition-colors ${
+                        isSelected ? "bg-emerald-50/30 dark:bg-emerald-950/20" : ""
+                      }`}
+                    >
+                      {/* Checkbox */}
+                      <td className="p-4">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={() => toggleSelectOne(emp.id)}
+                          aria-label={`Select ${emp.name}`}
+                        />
+                      </td>
+
+                      {/* Employee Info */}
+                      <td className="p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="relative h-10 w-10 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-bold flex items-center justify-center shrink-0 overflow-hidden text-sm border border-border">
+                            {emp.photo ? (
+                              <img
+                                src={emp.photo}
+                                alt={emp.name}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              emp.name
+                                .split(" ")
+                                .map((n) => n[0])
+                                .slice(0, 2)
+                                .join("")
+                                .toUpperCase()
+                            )}
+                          </div>
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-foreground">{emp.name}</span>
+                              <span className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
+                                {emp.employeeId}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <Mail className="h-3 w-3" />
+                              <span>{emp.email}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Contact */}
+                      <td className="p-4">
+                        <div className="space-y-0.5 text-xs">
+                          <div className="flex items-center gap-1.5 font-medium text-foreground">
+                            <Phone className="h-3 w-3 text-muted-foreground" />
+                            <span>{emp.phone}</span>
+                          </div>
+                          {emp.address && (
+                            <p className="text-muted-foreground text-[11px] truncate max-w-[200px]">
+                              {emp.address}
+                            </p>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Department & Role */}
+                      <td className="p-4">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <Badge variant="outline" className="text-xs bg-muted/40 font-normal">
+                              {emp.department?.name || "General"}
+                            </Badge>
+                            <Badge variant="secondary" className="text-xs font-semibold">
+                              {emp.role?.name || "Staff"}
+                            </Badge>
+                            {emp.isTechnician && (
+                              <Badge className="text-[10px] bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200">
+                                <Sparkles className="h-3 w-3 mr-0.5" />
+                                Tech ({Number(emp.commissionRate || 0)}%)
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Access Level */}
+                      <td className="p-4">
+                        <div className="space-y-1">
+                          <Badge
+                            className={`text-xs font-medium ${
+                              isAdmin
+                                ? "bg-emerald-100 dark:bg-emerald-950/80 text-emerald-800 dark:text-emerald-300 border-emerald-300"
+                                : "bg-sky-100 dark:bg-sky-950/80 text-sky-800 dark:text-sky-300 border-sky-300"
+                            }`}
+                          >
+                            <Shield className="h-3 w-3 mr-1" />
+                            {accessLabel}
+                          </Badge>
+                          {emp.adminPanelAccess && (
+                            <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-0.5">
+                              • Admin Login ON
+                            </p>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Status */}
+                      <td className="p-4 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleStatus(emp)}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold cursor-pointer transition-all ${
+                            emp.status === "ACTIVE"
+                              ? "bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100"
+                              : "bg-red-50 dark:bg-red-950/50 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800 hover:bg-red-100"
+                          }`}
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${
+                              emp.status === "ACTIVE" ? "bg-emerald-500" : "bg-red-500"
+                            }`}
+                          />
+                          {emp.status === "ACTIVE" ? "Active" : "Inactive"}
+                        </button>
+                      </td>
+
+                      {/* Actions */}
+                      <td className="p-4 text-right">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setDetailsModalEmployee(emp)}
+                            title="View Profile Details"
+                            className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            <Eye className="h-4 w-4" />
+                          </button>
+
+                          <Link
+                            href={`/admin/hrm/employees/${emp.id}/edit`}
+                            title="Edit Employee"
+                            className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-emerald-600 transition-colors"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Link>
+
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                                <MoreVertical className="h-4 w-4" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-44">
+                              <DropdownMenuItem
+                                onClick={() => handleResetPassword(emp)}
+                                className="cursor-pointer"
+                              >
+                                <Key className="h-4 w-4 mr-2 text-amber-500" />
+                                Reset Password
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => handleDeleteEmployee(emp)}
+                                className="cursor-pointer text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950/50"
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete Employee
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pagination Bar */}
+        <div className="p-4 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-muted-foreground">
+          <div>
+            Showing <span className="font-semibold text-foreground">{data.length}</span> of{" "}
+            <span className="font-semibold text-foreground">{totalCount}</span> team members
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={currentPage <= 1 || isLoading}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              className="p-1.5 rounded-md border border-border bg-background hover:bg-muted text-foreground disabled:opacity-40 transition-colors"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="font-medium text-foreground">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              type="button"
+              disabled={currentPage >= totalPages || isLoading}
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              className="p-1.5 rounded-md border border-border bg-background hover:bg-muted text-foreground disabled:opacity-40 transition-colors"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* DETAILS MODAL */}
+      {/* ========================================================================= */}
+      {detailsModalEmployee && (
+        <Dialog open={!!detailsModalEmployee} onOpenChange={() => setDetailsModalEmployee(null)}>
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <User className="h-5 w-5 text-emerald-600" />
+                Employee Profile Details
+              </DialogTitle>
+              <DialogDescription>
+                Detailed credentials, permissions, and branch assignments
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-6 pt-2">
+              {/* Header Profile Badge */}
+              <div className="flex items-start gap-4 p-4 rounded-xl bg-muted/30 border border-border">
+                <div className="h-14 w-14 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-bold flex items-center justify-center shrink-0 overflow-hidden text-lg border border-border">
+                  {detailsModalEmployee.photo ? (
+                    <img
+                      src={detailsModalEmployee.photo}
+                      alt={detailsModalEmployee.name}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    detailsModalEmployee.name
+                      .split(" ")
+                      .map((n) => n[0])
+                      .slice(0, 2)
+                      .join("")
+                      .toUpperCase()
+                  )}
+                </div>
+                <div className="space-y-1 flex-1">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-foreground">{detailsModalEmployee.name}</h3>
+                    <Badge
+                      className={
+                        detailsModalEmployee.status === "ACTIVE"
+                          ? "bg-emerald-600 text-white"
+                          : "bg-red-600 text-white"
+                      }
+                    >
+                      {detailsModalEmployee.status}
+                    </Badge>
+                  </div>
+                  <p className="text-xs font-mono text-muted-foreground">{detailsModalEmployee.employeeId}</p>
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground pt-1 flex-wrap">
+                    <span>{detailsModalEmployee.email}</span>
+                    <span>•</span>
+                    <span>{detailsModalEmployee.phone}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Grid 2 Cols: Job & Access */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="p-3.5 rounded-lg border border-border space-y-2 bg-card">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Job Information
+                  </h4>
+                  <div className="space-y-1 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Department:</span>
+                      <span className="font-semibold text-foreground">{detailsModalEmployee.department?.name || "N/A"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Role:</span>
+                      <span className="font-semibold text-foreground">{detailsModalEmployee.role?.name || "N/A"}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Employment Type:</span>
+                      <span className="font-semibold text-foreground">{detailsModalEmployee.employmentType}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Basic Salary:</span>
+                      <span className="font-semibold text-foreground font-mono">
+                        ৳{Number(detailsModalEmployee.basicSalary || 0).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Bonus Limit:</span>
+                      <span className="font-semibold text-foreground font-mono">
+                        ৳{Number(detailsModalEmployee.bonusLimit || 0).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-lg border border-border space-y-2 bg-card">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Access & Capabilities
+                  </h4>
+                  <div className="space-y-1 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">System Scope:</span>
+                      <span className="font-semibold text-foreground">{detailsModalEmployee.access}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Admin Portal Access:</span>
+                      <span className={`font-semibold ${detailsModalEmployee.adminPanelAccess ? "text-emerald-600" : "text-muted-foreground"}`}>
+                        {detailsModalEmployee.adminPanelAccess ? "Allowed" : "Restricted"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Technician Flag:</span>
+                      <span className={`font-semibold ${detailsModalEmployee.isTechnician ? "text-purple-600" : "text-muted-foreground"}`}>
+                        {detailsModalEmployee.isTechnician ? `Active (${detailsModalEmployee.commissionRate}%)` : "No"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Multi-Branch Access List */}
+              <div className="p-3.5 rounded-lg border border-border space-y-2 bg-card">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                  <Building2 className="h-3.5 w-3.5 text-emerald-600" />
+                  Assigned Branch Privileges
+                </h4>
+                <div className="flex items-center gap-2 flex-wrap pt-1">
+                  {detailsModalEmployee.branchAccess && detailsModalEmployee.branchAccess.length > 0 ? (
+                    detailsModalEmployee.branchAccess.map((ba) => (
+                      <Badge key={ba.id} variant="secondary" className="text-xs py-1 px-2.5">
+                        {ba.branch.name} ({ba.branch.code || "Code N/A"})
+                      </Badge>
+                    ))
+                  ) : detailsModalEmployee.branch ? (
+                    <Badge variant="secondary" className="text-xs py-1 px-2.5">
+                      {detailsModalEmployee.branch.name}
+                    </Badge>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">No specific branch assigned.</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Emergency Contact */}
+              {(detailsModalEmployee.emergencyContactName || detailsModalEmployee.emergencyContactPhone) && (
+                <div className="p-3.5 rounded-lg border border-amber-500/20 bg-amber-500/5 space-y-1 text-xs">
+                  <h4 className="font-bold text-amber-700 dark:text-amber-400">
+                    Emergency Contact: {detailsModalEmployee.emergencyContactName} ({detailsModalEmployee.emergencyContactRelationship || "Relation N/A"})
+                  </h4>
+                  <p className="text-muted-foreground">Phone: {detailsModalEmployee.emergencyContactPhone}</p>
+                </div>
+              )}
+
+              {/* Document Link */}
+              {detailsModalEmployee.birthCertificateUrl && (
+                <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-muted/20 text-xs">
+                  <div className="flex items-center gap-2">
+                    <ExternalLink className="h-4 w-4 text-emerald-600" />
+                    <span>Birth Certificate / ID Document attached</span>
+                  </div>
+                  <a
+                    href={detailsModalEmployee.birthCertificateUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-emerald-600 hover:underline"
+                  >
+                    View Document
+                  </a>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* ========================================================================= */}
+      {/* RESET PASSWORD MODAL */}
+      {/* ========================================================================= */}
+      {resetModalInfo && (
+        <Dialog open={!!resetModalInfo} onOpenChange={() => setResetModalInfo(null)}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-amber-600">
+                <Key className="h-5 w-5" />
+                Temporary Password Generated
+              </DialogTitle>
+              <DialogDescription>
+                A new secure password has been generated for {resetModalInfo.name}.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 pt-2">
+              <div className="p-4 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/30 flex items-center justify-between">
+                <span className="font-mono text-lg font-bold text-foreground tracking-wider">
+                  {resetModalInfo.tempPass}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(resetModalInfo.tempPass)}
+                  className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold flex items-center gap-1.5 transition"
+                >
+                  {hasCopiedPass ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  {hasCopiedPass ? "Copied!" : "Copy"}
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Please share this temporary password with the employee. They will be required to change it on their next login.
+              </p>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

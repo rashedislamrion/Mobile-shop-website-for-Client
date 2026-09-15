@@ -1,10 +1,172 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { UpdateFooterSettingsDto } from './dto/footer-settings.dto';
+import {
+  CreateFooterColumnItemDto,
+  ReorderFooterColumnItemsDto,
+  UpdateFooterColumnItemDto,
+  UpdateFooterSettingsDto,
+} from './dto/footer-settings.dto';
+
+const DEFAULT_COLUMNS = [
+  {
+    key: 'support',
+    title: 'Support',
+    sortOrder: 0,
+    items: [
+      {
+        sourceType: 'CUSTOM',
+        navigationLabel: 'Dedicated Support',
+        url: '/contact',
+        extraData: {
+          availableTime: '9:00 AM - 10:00 PM',
+          phone: '+880 1700-000000',
+        },
+      },
+      {
+        sourceType: 'CUSTOM',
+        navigationLabel: 'Support Tickets',
+        url: '/account/support',
+        extraData: {},
+      },
+      {
+        sourceType: 'CUSTOM',
+        navigationLabel: 'Track Your Order',
+        url: '/account/orders',
+        extraData: {},
+      },
+    ],
+  },
+  {
+    key: 'about_us',
+    title: 'About Us',
+    sortOrder: 1,
+    items: [
+      {
+        sourceType: 'PAGE',
+        navigationLabel: 'About Us',
+        url: '/about',
+        extraData: {},
+      },
+      {
+        sourceType: 'CUSTOM',
+        navigationLabel: 'News & Articles',
+        url: '/blog',
+        extraData: {},
+      },
+      {
+        sourceType: 'CUSTOM',
+        navigationLabel: 'Contact Us',
+        url: '/contact',
+        extraData: {},
+      },
+    ],
+  },
+  {
+    key: 'quick_links',
+    title: 'Quick Links',
+    sortOrder: 2,
+    items: [
+      {
+        sourceType: 'CUSTOM',
+        navigationLabel: 'All Products',
+        url: '/category/all',
+        extraData: {},
+      },
+      {
+        sourceType: 'PAGE',
+        navigationLabel: 'Terms of Service',
+        url: '/terms',
+        extraData: {},
+      },
+      {
+        sourceType: 'PAGE',
+        navigationLabel: 'Privacy Policy',
+        url: '/privacy',
+        extraData: {},
+      },
+    ],
+  },
+  {
+    key: 'branches',
+    title: 'Our Outlets',
+    sortOrder: 3,
+    items: [
+      {
+        sourceType: 'BRANCH',
+        navigationLabel: 'Bashundhara City Outlet',
+        url: '#',
+        extraData: {
+          name: 'Bashundhara City Outlet',
+          location: 'Level 4, Bashundhara City, Dhaka',
+          phone: '+880 1711-000001',
+        },
+      },
+      {
+        sourceType: 'BRANCH',
+        navigationLabel: 'Motijheel Flagship',
+        url: '#',
+        extraData: {
+          name: 'Motijheel Flagship',
+          location: 'Dilkusha C/A, Motijheel, Dhaka',
+          phone: '+880 1711-000002',
+        },
+      },
+      {
+        sourceType: 'BRANCH',
+        navigationLabel: 'Uttara Hub',
+        url: '#',
+        extraData: {
+          name: 'Uttara Hub',
+          location: 'Sector 3, Uttara, Dhaka',
+          phone: '+880 1711-000003',
+        },
+      },
+    ],
+  },
+];
 
 @Injectable()
-export class FooterSettingsService {
+export class FooterSettingsService implements OnModuleInit {
   constructor(private prisma: PrismaService) {}
+
+  async onModuleInit() {
+    await this.seedFooterColumns();
+  }
+
+  async seedFooterColumns() {
+    const count = await this.prisma.footerColumn.count();
+    if (count === 0) {
+      for (const col of DEFAULT_COLUMNS) {
+        const createdCol = await this.prisma.footerColumn.create({
+          data: {
+            key: col.key,
+            title: col.title,
+            sortOrder: col.sortOrder,
+          },
+        });
+
+        for (let i = 0; i < col.items.length; i++) {
+          const item = col.items[i];
+          await this.prisma.footerColumnItem.create({
+            data: {
+              footerColumnId: createdCol.id,
+              sourceType: item.sourceType,
+              navigationLabel: item.navigationLabel,
+              url: item.url,
+              extraData: item.extraData,
+              sortOrder: i,
+              isActive: true,
+            },
+          });
+        }
+      }
+    }
+  }
 
   async getSettings() {
     let settings = await this.prisma.footerSettings.findFirst();
@@ -46,5 +208,183 @@ export class FooterSettingsService {
         copyrightText: dto.copyrightText,
       },
     });
+  }
+
+  // ============================= FOOTER BUILDER =============================
+
+  async getBuilderData() {
+    await this.seedFooterColumns();
+
+    const [structureMenus, pages, columns, disabledItems] = await Promise.all([
+      this.prisma.menuStructureItem.findMany({
+        where: { isActive: true },
+        orderBy: { sortOrder: 'asc' },
+      }),
+      this.prisma.page.findMany({
+        select: { id: true, title: true, slug: true },
+        orderBy: { title: 'asc' },
+      }),
+      this.prisma.footerColumn.findMany({
+        include: {
+          items: {
+            where: { isActive: true },
+            orderBy: { sortOrder: 'asc' },
+          },
+        },
+        orderBy: { sortOrder: 'asc' },
+      }),
+      this.prisma.footerColumnItem.findMany({
+        where: { isActive: false },
+        include: {
+          footerColumn: {
+            select: { key: true, title: true },
+          },
+        },
+        orderBy: { updatedAt: 'desc' },
+      }),
+    ]);
+
+    const availableMenus = structureMenus.map((m) => ({
+      id: m.id,
+      name: m.navigationLabel,
+      url: m.urlSlug,
+      sourceType: 'MENU',
+    }));
+
+    const availablePages = pages.map((p) => ({
+      id: p.id,
+      name: p.title,
+      url: `/pages/${p.slug}`,
+      sourceType: 'PAGE',
+    }));
+
+    return {
+      availableMenus,
+      availablePages,
+      columns,
+      disabledItems,
+    };
+  }
+
+  async getPublicFooter() {
+    await this.seedFooterColumns();
+
+    const columns = await this.prisma.footerColumn.findMany({
+      include: {
+        items: {
+          where: { isActive: true },
+          orderBy: { sortOrder: 'asc' },
+        },
+      },
+      orderBy: { sortOrder: 'asc' },
+    });
+
+    const settings = await this.getSettings();
+
+    return {
+      columns,
+      settings,
+    };
+  }
+
+  async addItem(columnKey: string, dto: CreateFooterColumnItemDto) {
+    let column = await this.prisma.footerColumn.findUnique({ where: { key: columnKey } });
+    if (!column) {
+      column = await this.prisma.footerColumn.create({
+        data: {
+          key: columnKey,
+          title: columnKey.replace('_', ' ').toUpperCase(),
+          sortOrder: 10,
+        },
+      });
+    }
+
+    const lastItem = await this.prisma.footerColumnItem.findFirst({
+      where: { footerColumnId: column.id },
+      orderBy: { sortOrder: 'desc' },
+    });
+    const nextSortOrder = (lastItem?.sortOrder ?? -1) + 1;
+
+    let extraData = dto.extraData || {};
+    let navigationLabel = dto.navigationLabel;
+    let url = dto.url || '#';
+
+    if (dto.sourceType === 'BRANCH' && dto.sourceId) {
+      const branch = await this.prisma.branch.findUnique({ where: { id: dto.sourceId } });
+      if (branch) {
+        navigationLabel = navigationLabel || branch.name;
+        extraData = {
+          name: branch.name,
+          location: branch.address || branch.city || '',
+          phone: branch.phone || '',
+          ...extraData,
+        };
+      }
+    }
+
+    return this.prisma.footerColumnItem.create({
+      data: {
+        footerColumnId: column.id,
+        sourceType: dto.sourceType,
+        sourceId: dto.sourceId || null,
+        navigationLabel,
+        url,
+        extraData,
+        sortOrder: nextSortOrder,
+        isActive: true,
+      },
+    });
+  }
+
+  async updateItem(columnKey: string, id: string, dto: UpdateFooterColumnItemDto) {
+    const item = await this.prisma.footerColumnItem.findUnique({ where: { id } });
+    if (!item) throw new NotFoundException(`FooterColumnItem ${id} not found`);
+
+    return this.prisma.footerColumnItem.update({
+      where: { id },
+      data: {
+        ...(dto.navigationLabel !== undefined ? { navigationLabel: dto.navigationLabel } : {}),
+        ...(dto.url !== undefined ? { url: dto.url } : {}),
+        ...(dto.extraData !== undefined ? { extraData: dto.extraData } : {}),
+      },
+    });
+  }
+
+  async disableItem(id: string) {
+    const item = await this.prisma.footerColumnItem.findUnique({ where: { id } });
+    if (!item) throw new NotFoundException(`FooterColumnItem ${id} not found`);
+
+    return this.prisma.footerColumnItem.update({
+      where: { id },
+      data: { isActive: false },
+    });
+  }
+
+  async enableItem(id: string) {
+    const item = await this.prisma.footerColumnItem.findUnique({ where: { id } });
+    if (!item) throw new NotFoundException(`FooterColumnItem ${id} not found`);
+
+    return this.prisma.footerColumnItem.update({
+      where: { id },
+      data: { isActive: true },
+    });
+  }
+
+  async deleteItem(id: string) {
+    const item = await this.prisma.footerColumnItem.findUnique({ where: { id } });
+    if (!item) throw new NotFoundException(`FooterColumnItem ${id} not found`);
+
+    return this.prisma.footerColumnItem.delete({ where: { id } });
+  }
+
+  async reorderColumnItems(dto: ReorderFooterColumnItemsDto) {
+    return this.prisma.$transaction(
+      dto.orderedItemIds.map((id, index) =>
+        this.prisma.footerColumnItem.update({
+          where: { id },
+          data: { sortOrder: index },
+        }),
+      ),
+    );
   }
 }

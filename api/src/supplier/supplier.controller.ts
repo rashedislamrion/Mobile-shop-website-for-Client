@@ -45,6 +45,16 @@ export class SupplierController {
     });
   }
 
+  @Get('suppliers/:id/advance')
+  @RequirePermission({ module: ModuleName.SUPPLIERS, action: PermissionAction.READ })
+  async getSupplierAdvance(@Param('id') id: string) {
+    const supplier = await this.supplierService.findOneSupplier(id);
+    return {
+      advanceBalance: Number(supplier.advanceBalance || 0),
+      totalDue: Number(supplier.totalDue || 0),
+    };
+  }
+
   @Get('suppliers/:id')
   @RequirePermission({ module: ModuleName.SUPPLIERS, action: PermissionAction.READ })
   findOneSupplier(@Param('id') id: string) {

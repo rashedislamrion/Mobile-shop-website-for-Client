@@ -16,6 +16,7 @@ import {
   CreatePurposeDto,
   UpdatePurposeDto,
   CreateWalletTransactionDto,
+  CreateStaffPaymentDto,
 } from './dto/wallet.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
@@ -43,10 +44,22 @@ export class WalletController {
     return this.walletService.findAllWalletTypes();
   }
 
+  @Get('wallets')
+  @RequirePermission({ module: ModuleName.WALLET, action: PermissionAction.READ })
+  findAllWallets(@Query('branchId') branchId?: string) {
+    return this.walletService.findAllWalletTypes();
+  }
+
   @Get('wallet-types/:id')
   @RequirePermission({ module: ModuleName.WALLET, action: PermissionAction.READ })
   findOneWalletType(@Param('id') id: string) {
     return this.walletService.findOneWalletType(id);
+  }
+
+  @Patch('wallet-types/:id/toggle-active')
+  @RequirePermission({ module: ModuleName.WALLET, action: PermissionAction.UPDATE })
+  toggleActiveWalletType(@Param('id') id: string) {
+    return this.walletService.toggleActiveWalletType(id);
   }
 
   @Post('wallet-types')
@@ -101,6 +114,62 @@ export class WalletController {
 
   // ============================= TRANSACTIONS =============================
 
+  @Get('wallet-transactions/transfers')
+  @RequirePermission({ module: ModuleName.WALLET, action: PermissionAction.READ })
+  findAllTransfers(
+    @Query('search') search?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.walletService.findAllTransfers({
+      search,
+      dateFrom,
+      dateTo,
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
+  }
+
+  @Post('wallet-transactions/transfer')
+  @RequirePermission({ module: ModuleName.WALLET, action: PermissionAction.CREATE })
+  transferFunds(
+    @Body() dto: any,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.walletService.transferFunds(dto, user.sub);
+  }
+
+  @Get('wallet-transactions/staff-payments')
+  @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.READ })
+  findAllStaffPayments(
+    @Query('walletTypeId') walletTypeId?: string,
+    @Query('month') month?: string,
+    @Query('payType') payType?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.walletService.findAllStaffPayments({
+      walletTypeId,
+      month,
+      payType,
+      search,
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
+  }
+
+  @Post('wallet-transactions/staff-payment')
+  @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.CREATE })
+  createStaffPayment(
+    @Body() dto: CreateStaffPaymentDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.walletService.createStaffPayment(dto, user.sub);
+  }
+
   @Get('wallet-transactions')
   @RequirePermission({ module: ModuleName.WALLET, action: PermissionAction.READ })
   findAllTransactions(
@@ -132,5 +201,15 @@ export class WalletController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.walletService.createTransaction(dto, user.sub);
+  }
+
+  @Post('wallets/:id/transactions')
+  @RequirePermission({ module: ModuleName.WALLET, action: PermissionAction.CREATE })
+  createWalletTransaction(
+    @Param('id') id: string,
+    @Body() dto: CreateWalletTransactionDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.walletService.createTransaction({ ...dto, walletTypeId: id }, user.sub);
   }
 }

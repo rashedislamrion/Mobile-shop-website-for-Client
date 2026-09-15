@@ -33,10 +33,18 @@ const categoryIconMap: Record<string, React.ReactNode> = {
 
 async function getHomeData() {
   try {
-    const [categoriesTree, productsRes, blogsRes] = await Promise.all([
+    const [categoriesTree, featuredRes, bestDealsRes, popularRes, blogsRes, phonesRes] = await Promise.all([
       apiGet<any>("/categories/tree").catch((e) => {
         console.error("Categories fetch error:", e);
         return [];
+      }),
+      apiGet<any>("/products", { featured: "true", limit: 10 }).catch((e) => {
+        console.error("Featured products fetch error:", e);
+        return { data: [] };
+      }),
+      apiGet<any>("/products", { bestDeal: "true", limit: 10 }).catch((e) => {
+        console.error("Best deals fetch error:", e);
+        return { data: [] };
       }),
       apiGet<any>("/products", { limit: 12, sort: "popular" }).catch((e) => {
         console.error("Products popular fetch error:", e);
@@ -46,33 +54,41 @@ async function getHomeData() {
         console.error("Blogs fetch error:", e);
         return [];
       }),
+      apiGet<any>("/products", { type: "PHONE", limit: 10 }).catch(() => ({ data: [] })),
     ]);
 
     const categories = Array.isArray(categoriesTree)
       ? categoriesTree
       : categoriesTree?.data || [];
 
-    let products = Array.isArray(productsRes)
-      ? productsRes
-      : productsRes?.data || [];
+    let fallbackProducts = Array.isArray(popularRes)
+      ? popularRes
+      : popularRes?.data || [];
 
-    // Cold start fallback: If popular sort returns fewer than 4 items, fall back to newest
-    if (products.length < 4) {
-      const fallbackRes = await apiGet<any>("/products", { limit: 12, sort: "newest" }).catch((e) => {
-        console.error("Products fallback fetch error:", e);
-        return { data: [] };
-      });
-      const fallbackData = Array.isArray(fallbackRes) ? fallbackRes : fallbackRes?.data || [];
-      if (fallbackData.length > 0) {
-        products = fallbackData;
+    if (fallbackProducts.length < 4) {
+      const newestRes = await apiGet<any>("/products", { limit: 12, sort: "newest" }).catch(() => ({ data: [] }));
+      const newestData = Array.isArray(newestRes) ? newestRes : newestRes?.data || [];
+      if (newestData.length > 0) {
+        fallbackProducts = newestData;
       }
     }
+
+    const featuredData = Array.isArray(featuredRes) ? featuredRes : featuredRes?.data || [];
+    const bestDealsData = Array.isArray(bestDealsRes) ? bestDealsRes : bestDealsRes?.data || [];
+    const phonesData = Array.isArray(phonesRes) ? phonesRes : phonesRes?.data || [];
+
+    const featuredProducts = featuredData.length > 0 ? featuredData : fallbackProducts.slice(0, 5);
+    const bestDeals = bestDealsData.length > 0 ? bestDealsData : fallbackProducts.slice(0, 10);
+    const phones = phonesData.length > 0 ? phonesData : [];
 
     const blogs = Array.isArray(blogsRes) ? blogsRes : blogsRes?.data || [];
 
     return {
       categories,
-      products,
+      products: fallbackProducts,
+      featuredProducts,
+      bestDeals,
+      phones,
       blogs: blogs.slice(0, 3),
     };
   } catch (err) {
@@ -80,15 +96,16 @@ async function getHomeData() {
     return {
       categories: [],
       products: [],
+      featuredProducts: [],
+      bestDeals: [],
+      phones: [],
       blogs: [],
     };
   }
 }
 
-export default async function StorefrontHome() {
-  const { categories, products, blogs } = await getHomeData();
-  const bestDeals = products.slice(0, 10);
-  const featuredProducts = products.slice(0, 5);
+export default async function HomePage() {
+  const { categories, products, featuredProducts, bestDeals, phones, blogs } = await getHomeData();
 
   return (
     <div className="flex flex-col gap-12 pb-16">
@@ -115,7 +132,7 @@ export default async function StorefrontHome() {
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {categories.slice(0, 12).map((cat) => {
+            {categories.slice(0, 12).map((cat: any) => {
               const icon = categoryIconMap[cat.name] || <Smartphone className="w-8 h-8" />;
               return (
                 <Link
@@ -165,7 +182,7 @@ export default async function StorefrontHome() {
               </div>
             ) : (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
-                {bestDeals.map((product) => (
+                {bestDeals.map((product: any) => (
                   <ProductCard key={product.id} product={product} />
                 ))}
               </div>
@@ -173,12 +190,49 @@ export default async function StorefrontHome() {
           </TabsContent>
           <TabsContent value="spare" className="mt-0 outline-none">
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
-              {bestDeals.map((product) => (
+              {bestDeals.map((product: any) => (
                 <ProductCard key={product.id} product={product} />
               ))}
             </div>
           </TabsContent>
         </Tabs>
+      </section>
+
+      {/* 3.5 Dedicated Smartphones & Handsets Section */}
+      <section className="container mx-auto px-4">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-6 rounded-2xl text-white shadow-xs">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                Official & Pre-Owned Handsets
+              </span>
+            </div>
+            <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+              <Smartphone className="w-6 h-6 text-emerald-400" />
+              Smartphones & Devices
+            </h2>
+            <p className="text-xs text-slate-300 mt-0.5">
+              Verified IMEI device inventory with hardware warranty inspection.
+            </p>
+          </div>
+          <Link href="/phones">
+            <Button className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs">
+              Explore All Phones <ArrowRight className="w-3.5 h-3.5 ml-1.5" />
+            </Button>
+          </Link>
+        </div>
+
+        {phones.length === 0 ? (
+          <div className="py-8 text-center text-slate-400 text-xs border rounded-xl bg-slate-50">
+            No smartphones currently in stock. Check back shortly.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
+            {phones.map((product: any) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        )}
       </section>
 
       {/* 4. Featured Products */}
@@ -188,7 +242,7 @@ export default async function StorefrontHome() {
             <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Featured Products</h2>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 md:gap-6">
-            {featuredProducts.map((product) => (
+            {featuredProducts.map((product: any) => (
               <ProductCard key={product.id} product={product} />
             ))}
           </div>
@@ -205,7 +259,7 @@ export default async function StorefrontHome() {
             </Link>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {blogs.map((blog) => (
+            {blogs.map((blog: any) => (
               <BlogCard key={blog.id} blog={blog} />
             ))}
           </div>

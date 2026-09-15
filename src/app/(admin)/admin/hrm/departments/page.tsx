@@ -2,32 +2,26 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useAdminPage } from "@/contexts/AdminPageContext";
-import { DataTable, ActionDropdown } from "@/components/admin/DataTable";
-import { TableAction } from "@/types/table";
-import { ColumnDef } from "@tanstack/react-table";
-import { Edit, Trash2, Plus, Users, Search } from "lucide-react";
+import {
+  Building2,
+  Plus,
+  Search,
+  Edit,
+  Trash2,
+  Users,
+  CheckCircle2,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Switch } from "@/components/ui/switch";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api-client";
+import { Badge } from "@/components/ui/badge";
 
 interface DepartmentRecord {
   id: string;
@@ -38,42 +32,23 @@ interface DepartmentRecord {
   _count?: { staff: number };
 }
 
-interface EmployeeOption {
-  id: string;
-  name: string;
-  employeeId: string;
-}
-
-const departmentSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters"),
-  headId: z.string().optional(),
-  status: z.enum(["Active", "Inactive"]),
-});
-
-type DepartmentFormValues = z.infer<typeof departmentSchema>;
-
 export default function DepartmentsPage() {
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
   const [data, setData] = useState<DepartmentRecord[]>([]);
-  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingDept, setEditingDept] = useState<DepartmentRecord | null>(null);
 
-  const form = useForm<DepartmentFormValues>({
-    resolver: zodResolver(departmentSchema),
-    defaultValues: {
-      name: "",
-      headId: "",
-      status: "Active",
-    },
-  });
+  // Modal form state
+  const [nameInput, setNameInput] = useState("");
+  const [statusInput, setStatusInput] = useState<"ACTIVE" | "INACTIVE">("ACTIVE");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     setTitle("Departments");
-    setBadge("Website");
-    setDateFilter(""); 
+    setBadge("HRM");
+    setDateFilter("");
   }, [setTitle, setBadge, setDateFilter]);
 
   const loadData = useCallback(async () => {
@@ -95,41 +70,31 @@ export default function DepartmentsPage() {
     loadData();
   }, [loadData]);
 
-  useEffect(() => {
-    apiGet<{ data: any[] }>("/employees", { limit: 100 })
-      .then((res) => {
-        if (res?.data) {
-          setEmployees(res.data.map((e: any) => ({ id: e.id, name: e.name, employeeId: e.employeeId })));
-        }
-      })
-      .catch(() => {});
-  }, []);
-
   const handleOpenDialog = (dept?: DepartmentRecord) => {
     if (dept) {
       setEditingDept(dept);
-      form.reset({
-        name: dept.name,
-        headId: dept.headId || "",
-        status: dept.status === "ACTIVE" || dept.status === "Active" ? "Active" : "Inactive",
-      });
+      setNameInput(dept.name);
+      setStatusInput(dept.status === "INACTIVE" ? "INACTIVE" : "ACTIVE");
     } else {
       setEditingDept(null);
-      form.reset({
-        name: "",
-        headId: "",
-        status: "Active",
-      });
+      setNameInput("");
+      setStatusInput("ACTIVE");
     }
     setIsDialogOpen(true);
   };
 
-  const onSubmit = async (values: DepartmentFormValues) => {
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!nameInput.trim()) {
+      toast.error("Department name is required");
+      return;
+    }
+
     try {
+      setIsSubmitting(true);
       const payload = {
-        name: values.name,
-        headId: values.headId || undefined,
-        status: values.status.toUpperCase(),
+        name: nameInput.trim(),
+        status: statusInput,
       };
 
       if (editingDept) {
@@ -144,12 +109,22 @@ export default function DepartmentsPage() {
       loadData();
     } catch (err: any) {
       toast.error(err.message || "Failed to save department");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (dept: DepartmentRecord) => {
+    if (
+      !confirm(
+        `Are you sure you want to delete department "${dept.name}"? This action cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+
     try {
-      await apiDelete(`/departments/${id}`);
+      await apiDelete(`/departments/${dept.id}`);
       toast.success("Department deleted successfully");
       loadData();
     } catch (err: any) {
@@ -157,202 +132,211 @@ export default function DepartmentsPage() {
     }
   };
 
-  const createActions = (): TableAction[] => [
-    {
-      label: "Edit",
-      icon: <Edit className="w-4 h-4" />,
-      onClick: (row) => handleOpenDialog(row),
-    },
-    {
-      label: "Delete",
-      icon: <Trash2 className="w-4 h-4" />,
-      variant: "destructive",
-      onClick: (row) => handleDelete(row.id),
-    },
-  ];
-
-  const columns: ColumnDef<DepartmentRecord>[] = [
-    {
-      accessorKey: "name",
-      header: "Department Name",
-      cell: ({ row }) => (
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-sm">
-            {row.original.name.charAt(0)}
-          </div>
-          <div>
-            <span className="font-semibold text-slate-800">{row.original.name}</span>
-          </div>
-        </div>
-      ),
-    },
-    {
-      accessorKey: "head",
-      header: "Head of Department",
-      cell: ({ row }) => {
-        const head = row.original.head;
-        if (!head) return <span className="text-slate-400 italic text-sm">Unassigned</span>;
-
-        return (
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-slate-700">{head.name}</span>
-          </div>
-        );
-      },
-    },
-    {
-      accessorKey: "employeeCount",
-      header: "Employees",
-      cell: ({ row }) => (
-        <div className="flex items-center gap-1.5 text-slate-600">
-          <Users className="w-4 h-4 text-slate-400" />
-          <span className="font-medium text-sm">{row.original._count?.staff || 0}</span>
-        </div>
-      ),
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => {
-        const isActive = row.original.status === "ACTIVE" || row.original.status === "Active";
-        return (
-          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-            isActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-700"
-          }`}>
-            {isActive ? "Active" : "Inactive"}
-          </span>
-        );
-      },
-    },
-    {
-      id: "actions",
-      header: "Action",
-      cell: ({ row }) => (
-        <div className="flex justify-end">
-          <ActionDropdown actions={createActions()} rowData={row.original} />
-        </div>
-      ),
-    },
-  ];
+  const filteredData = data.filter((d) =>
+    !searchQuery.trim()
+      ? true
+      : d.name.toLowerCase().includes(searchQuery.toLowerCase().trim()),
+  );
 
   return (
     <div className="space-y-6">
-      {/* Top Header / Action Bar */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-xl border border-slate-200">
-        <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <Input 
-            placeholder="Search departments..." 
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2.5">
+            <Building2 className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
+            Departments
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Manage organizational divisions, operational units, and staff grouping
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => handleOpenDialog()}
+          className="px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-2 transition-colors self-start sm:self-auto"
+        >
+          <Plus className="h-4 w-4" />
+          Create New Department
+        </button>
+      </div>
+
+      {/* Filter / Search Bar */}
+      <div className="p-4 rounded-xl border border-border bg-card shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="relative flex-1 max-w-md">
+          <Search className="h-4 w-4 absolute left-3 top-3 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search departments..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 bg-slate-50 border-slate-200 focus:bg-white"
+            className="w-full h-10 pl-9 pr-3 text-sm rounded-lg border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
 
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <button 
-              onClick={() => handleOpenDialog()}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors w-full sm:w-auto justify-center"
-            >
-              <Plus className="w-4 h-4" /> Add Department
-            </button>
-          </DialogTrigger>
-          
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>{editingDept ? "Edit Department" : "Add New Department"}</DialogTitle>
-            </DialogHeader>
-
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 pt-4">
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Department Name</FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g. Sales & Marketing" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="headId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Head of Department</FormLabel>
-                      <FormControl>
-                        <select 
-                          className="w-full h-10 px-3 rounded-md border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2"
-                          {...field}
-                          value={field.value || ""}
-                        >
-                          <option value="">Select an employee (Optional)</option>
-                          {employees.map((emp) => (
-                            <option key={emp.id} value={emp.id}>
-                              {emp.name} ({emp.employeeId})
-                            </option>
-                          ))}
-                        </select>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="status"
-                  render={({ field }) => (
-                    <FormItem className="flex items-center justify-between rounded-lg border border-slate-100 p-3 bg-slate-50">
-                      <div className="space-y-0.5">
-                        <FormLabel>Status</FormLabel>
-                        <div className="text-xs text-slate-500">
-                          {field.value === "Active" ? "Department is active" : "Department is inactive"}
-                        </div>
-                      </div>
-                      <FormControl>
-                        <Switch
-                          checked={field.value === "Active"}
-                          onCheckedChange={(checked) => field.onChange(checked ? "Active" : "Inactive")}
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                />
-
-                <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setIsDialogOpen(false)}
-                    className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium"
-                  >
-                    {editingDept ? "Save Changes" : "Create Department"}
-                  </button>
-                </div>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
+        <div className="text-xs text-muted-foreground">
+          Total <span className="font-semibold text-foreground">{filteredData.length}</span> departments
+        </div>
       </div>
 
-      {/* Main Table */}
-      <DataTable 
-        columns={columns} 
-        data={data} 
-        pageSize={10}
-      />
+      {/* Table */}
+      <div className="rounded-xl border border-border bg-card shadow-xs overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-muted/50 border-b border-border text-xs uppercase text-muted-foreground font-semibold">
+              <tr>
+                <th className="p-4 w-16 text-center font-semibold">SL</th>
+                <th className="p-4 font-semibold tracking-wider">Department Name</th>
+                <th className="p-4 font-semibold tracking-wider">Total Staff</th>
+                <th className="p-4 font-semibold tracking-wider text-center">Status</th>
+                <th className="p-4 font-semibold tracking-wider text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border text-foreground">
+              {isLoading ? (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="h-5 w-5 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" />
+                      <span>Loading departments...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredData.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                    No departments found.
+                  </td>
+                </tr>
+              ) : (
+                filteredData.map((dept, index) => (
+                  <tr key={dept.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="p-4 text-center font-mono text-xs text-muted-foreground">
+                      #{index + 1}
+                    </td>
+
+                    <td className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-9 w-9 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold text-sm border border-emerald-200 dark:border-emerald-800">
+                          {dept.name.charAt(0)}
+                        </div>
+                        <span className="font-semibold text-foreground">{dept.name}</span>
+                      </div>
+                    </td>
+
+                    <td className="p-4">
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
+                        <Users className="h-4 w-4 text-muted-foreground" />
+                        <span>{dept._count?.staff || 0} employees</span>
+                      </div>
+                    </td>
+
+                    <td className="p-4 text-center">
+                      <Badge
+                        variant="secondary"
+                        className={
+                          dept.status === "ACTIVE"
+                            ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200"
+                            : "bg-muted text-muted-foreground"
+                        }
+                      >
+                        {dept.status === "ACTIVE" ? "Active" : "Inactive"}
+                      </Badge>
+                    </td>
+
+                    <td className="p-4 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenDialog(dept)}
+                          title="Edit Department"
+                          className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-emerald-600 transition-colors"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(dept)}
+                          title="Delete Department"
+                          className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-red-600 transition-colors"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* CREATE / EDIT DIALOG */}
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-emerald-600" />
+              {editingDept ? "Edit Department" : "Create New Department"}
+            </DialogTitle>
+            <DialogDescription>
+              Enter the department name and operational status.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={onSubmit} className="space-y-4 pt-2">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">
+                Department Name <span className="text-red-500">*</span>
+              </label>
+              <Input
+                placeholder="e.g. Sales, Hardware Repair, Logistics"
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                required
+                className="h-10"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">
+                Status
+              </label>
+              <select
+                value={statusInput}
+                onChange={(e) => setStatusInput(e.target.value as any)}
+                className="w-full h-10 px-3 py-2 text-sm rounded-lg border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+              >
+                <option value="ACTIVE">Active</option>
+                <option value="INACTIVE">Inactive</option>
+              </select>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setIsDialogOpen(false)}
+                className="px-4 py-2 text-sm font-medium border border-border rounded-lg bg-background hover:bg-muted text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting || !nameInput.trim()}
+                className="px-5 py-2 text-sm font-medium rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-2 transition-colors disabled:opacity-50"
+              >
+                {isSubmitting ? (
+                  <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4" />
+                )}
+                {editingDept ? "Save Changes" : "Create Department"}
+              </button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

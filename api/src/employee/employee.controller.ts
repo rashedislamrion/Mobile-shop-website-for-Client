@@ -8,23 +8,39 @@ import {
   Delete,
   Query,
   UseGuards,
+  UseInterceptors,
+  UploadedFiles,
 } from '@nestjs/common';
 import { EmployeeService } from './employee.service';
 import {
   CreateEmployeeDto,
   UpdateEmployeeDto,
   UpdateStatusDto,
-  UpdateSpecializationsDto,
+  MakeTechnicianDto,
 } from './dto/create-employee.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { ModuleName, PermissionAction, StaffStatus } from '@prisma/client';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { createMulterConfig, resolveUploadedFile } from '../common/upload/multer.config';
 
 @Controller('employees')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class EmployeeController {
   constructor(private readonly employeeService: EmployeeService) {}
+
+  @Get('technicians')
+  @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.READ })
+  findTechnicians() {
+    return this.employeeService.findTechnicians();
+  }
+
+  @Get('eligible-for-technician')
+  @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.READ })
+  findEligibleForTechnician() {
+    return this.employeeService.findEligibleForTechnician();
+  }
 
   @Get()
   @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.READ })
@@ -48,12 +64,6 @@ export class EmployeeController {
     });
   }
 
-  @Get('technicians')
-  @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.READ })
-  findTechnicians() {
-    return this.employeeService.findTechnicians();
-  }
-
   @Get(':id')
   @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.READ })
   findOne(@Param('id') id: string) {
@@ -62,14 +72,83 @@ export class EmployeeController {
 
   @Post()
   @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.CREATE })
-  create(@Body() createEmployeeDto: CreateEmployeeDto) {
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'profilePhoto', maxCount: 1 },
+        { name: 'birthCertificate', maxCount: 1 },
+      ],
+      createMulterConfig('staff-documents'),
+    ),
+  )
+  async create(
+    @Body() createEmployeeDto: CreateEmployeeDto,
+    @UploadedFiles()
+    files?: {
+      profilePhoto?: Express.Multer.File[];
+      birthCertificate?: Express.Multer.File[];
+    },
+  ) {
+    if (files?.profilePhoto?.[0]) {
+      createEmployeeDto.photo = (await resolveUploadedFile(files.profilePhoto[0], 'staff-documents')) || `/uploads/staff-documents/${files.profilePhoto[0].filename}`;
+    }
+    if (files?.birthCertificate?.[0]) {
+      createEmployeeDto.birthCertificateUrl = (await resolveUploadedFile(files.birthCertificate[0], 'staff-documents')) || `/uploads/staff-documents/${files.birthCertificate[0].filename}`;
+    }
     return this.employeeService.create(createEmployeeDto);
   }
 
   @Patch(':id')
   @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.UPDATE })
-  update(@Param('id') id: string, @Body() updateEmployeeDto: UpdateEmployeeDto) {
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'profilePhoto', maxCount: 1 },
+        { name: 'birthCertificate', maxCount: 1 },
+      ],
+      createMulterConfig('staff-documents'),
+    ),
+  )
+  async update(
+    @Param('id') id: string,
+    @Body() updateEmployeeDto: UpdateEmployeeDto,
+    @UploadedFiles()
+    files?: {
+      profilePhoto?: Express.Multer.File[];
+      birthCertificate?: Express.Multer.File[];
+    },
+  ) {
+    if (files?.profilePhoto?.[0]) {
+      updateEmployeeDto.photo = (await resolveUploadedFile(files.profilePhoto[0], 'staff-documents')) || `/uploads/staff-documents/${files.profilePhoto[0].filename}`;
+    }
+    if (files?.birthCertificate?.[0]) {
+      updateEmployeeDto.birthCertificateUrl = (await resolveUploadedFile(files.birthCertificate[0], 'staff-documents')) || `/uploads/staff-documents/${files.birthCertificate[0].filename}`;
+    }
     return this.employeeService.update(id, updateEmployeeDto);
+  }
+
+  @Post(':id/make-technician')
+  @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.UPDATE })
+  makeTechnician(
+    @Param('id') id: string,
+    @Body() dto: MakeTechnicianDto,
+  ) {
+    return this.employeeService.makeTechnician(id, dto);
+  }
+
+  @Patch(':id/technician')
+  @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.UPDATE })
+  updateTechnician(
+    @Param('id') id: string,
+    @Body() dto: MakeTechnicianDto,
+  ) {
+    return this.employeeService.updateTechnician(id, dto);
+  }
+
+  @Delete(':id/technician')
+  @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.UPDATE })
+  removeTechnician(@Param('id') id: string) {
+    return this.employeeService.removeTechnician(id);
   }
 
   @Patch(':id/reset-password')
@@ -82,15 +161,6 @@ export class EmployeeController {
   @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.UPDATE })
   updateStatus(@Param('id') id: string, @Body() updateStatusDto: UpdateStatusDto) {
     return this.employeeService.updateStatus(id, updateStatusDto);
-  }
-
-  @Patch(':id/specializations')
-  @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.UPDATE })
-  updateSpecializations(
-    @Param('id') id: string,
-    @Body() updateSpecializationsDto: UpdateSpecializationsDto,
-  ) {
-    return this.employeeService.updateSpecializations(id, updateSpecializationsDto);
   }
 
   @Delete(':id')

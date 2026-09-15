@@ -1,150 +1,207 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAdminPage } from '@/contexts/AdminPageContext';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { ChevronDown, Type, Bold, Italic, Link as LinkIcon, List, Image as ImageIcon } from 'lucide-react';
+import React, { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useAdminPage } from "@/contexts/AdminPageContext";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "sonner";
+import { ArrowLeft, Loader2, Save } from "lucide-react";
+import { RichTextEditor } from "@/components/admin/RichTextEditor";
+import { apiGet, apiPost, apiPatch } from "@/lib/api-client";
+import Link from "next/link";
 
-export default function CreateCmsPage() {
+function PageCreateForm() {
   const router = useRouter();
-  const { setPageInfo } = useAdminPage();
-  const [isSeoOpen, setIsSeoOpen] = useState(false);
+  const searchParams = useSearchParams();
+  const editId = searchParams.get("edit");
 
-  React.useEffect(() => {
-    setPageInfo({
-      title: 'Create Page',
-      breadcrumbs: [
-        { label: 'CMS', href: '/admin/cms/pages' },
-        { label: 'Pages', href: '/admin/cms/pages' },
-        { label: 'Create', href: '/admin/cms/pages/create' }
-      ]
-    });
-  }, [setPageInfo]);
+  const { setTitle } = useAdminPage();
+  const [title, setPageTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [status, setStatus] = useState<"PUBLISHED" | "DRAFT">("PUBLISHED");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    setTitle(editId ? "Edit Page" : "Add New Page");
+    if (editId) {
+      loadPage(editId);
+    }
+  }, [editId, setTitle]);
+
+  const loadPage = async (id: string) => {
+    setIsLoading(true);
+    try {
+      const data = await apiGet<any>(`/pages/${id}`);
+      if (data) {
+        setPageTitle(data.title || "");
+        setContent(data.content || "");
+        setStatus(data.status || "PUBLISHED");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to load page data");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) {
+      toast.error("Page Name is required");
+      return;
+    }
+    if (!content.trim() || content === "<p></p>") {
+      toast.error("Page content is required");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      if (editId) {
+        await apiPatch(`/pages/${editId}`, {
+          title: title.trim(),
+          content,
+          status,
+        });
+        toast.success("Page updated successfully");
+      } else {
+        await apiPost("/pages", {
+          title: title.trim(),
+          content,
+          status,
+        });
+        toast.success("Page created successfully");
+      }
+      router.push("/admin/cms/pages");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save page");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex h-72 items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6">
-      {/* LEFT COLUMN: Main Form */}
-      <div className="flex-1 space-y-6">
-        <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden">
-          <CardHeader className="bg-slate-50 border-b border-slate-100 pb-4">
-            <CardTitle className="text-lg font-semibold text-slate-800">Content</CardTitle>
+    <div className="space-y-6 max-w-4xl mx-auto pb-20">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Link
+            href="/admin/cms/pages"
+            className="w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100 flex items-center justify-center transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </Link>
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 tracking-tight">
+              {editId ? "Edit Page" : "Add New Page"}
+            </h1>
+            <p className="text-xs text-slate-500">
+              {editId ? "Update custom CMS page information" : "Create a new custom CMS page with rich formatting"}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden bg-white">
+          <CardHeader className="bg-slate-50/50 border-b border-slate-100 py-3.5 px-6">
+            <CardTitle className="text-sm font-bold text-slate-800">Page Information</CardTitle>
           </CardHeader>
           <CardContent className="p-6 space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Page Title <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                placeholder="e.g. Return Policy"
-                className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Slug <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                placeholder="e.g. /return-policy"
-                className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-mono text-sm text-slate-600"
-              />
-              <p className="text-xs text-slate-500 mt-1">This will be the URL of the page. Use lowercase and hyphens only.</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="md:col-span-2 space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-700">Page Name</Label>
+                <Input
+                  required
+                  value={title}
+                  onChange={(e) => setPageTitle(e.target.value)}
+                  placeholder="e.g. Return & Refund Policy"
+                  className="h-10 text-sm"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-700">Status</Label>
+                <Select
+                  value={status}
+                  onValueChange={(val: "PUBLISHED" | "DRAFT") => setStatus(val)}
+                >
+                  <SelectTrigger className="h-10 text-sm">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PUBLISHED">Published</SelectItem>
+                    <SelectItem value="DRAFT">Draft</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Page Content</label>
-              <div className="border border-slate-200 rounded-lg overflow-hidden flex flex-col">
-                <div className="bg-slate-50 border-b border-slate-200 p-2 flex items-center gap-1">
-                  <button type="button" className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded transition-colors"><Type className="w-4 h-4" /></button>
-                  <button type="button" className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded transition-colors"><Bold className="w-4 h-4" /></button>
-                  <button type="button" className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded transition-colors"><Italic className="w-4 h-4" /></button>
-                  <div className="w-px h-4 bg-slate-300 mx-1"></div>
-                  <button type="button" className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded transition-colors"><LinkIcon className="w-4 h-4" /></button>
-                  <button type="button" className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded transition-colors"><List className="w-4 h-4" /></button>
-                  <button type="button" className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-200 rounded transition-colors"><ImageIcon className="w-4 h-4" /></button>
-                </div>
-                <textarea 
-                  rows={15}
-                  placeholder="Write your page content here..."
-                  className="w-full p-4 focus:outline-none resize-y min-h-[300px]"
-                ></textarea>
-              </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold text-slate-700">Content</Label>
+              <RichTextEditor
+                value={content}
+                onChange={setContent}
+                placeholder="Write page content with headings, bold text, lists..."
+                minHeight="min-h-[260px]"
+                maxHeight="max-h-[480px]"
+              />
             </div>
           </CardContent>
         </Card>
 
-        {/* SEO Accordion */}
-        <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden">
-          <div 
-            className="flex items-center justify-between p-4 bg-slate-50 cursor-pointer select-none"
-            onClick={() => setIsSeoOpen(!isSeoOpen)}
+        <div className="flex justify-end gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => router.push("/admin/cms/pages")}
+            className="text-xs h-10 px-6"
           >
-            <h3 className="text-lg font-semibold text-slate-800">Search Engine Optimization (SEO)</h3>
-            <ChevronDown className={`w-5 h-5 text-slate-500 transition-transform ${isSeoOpen ? 'rotate-180' : ''}`} />
-          </div>
-          
-          {isSeoOpen && (
-            <div className="p-6 border-t border-slate-100 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Meta Title</label>
-                <input
-                  type="text"
-                  placeholder="Optimal length is 50-60 characters"
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Meta Description</label>
-                <textarea
-                  rows={3}
-                  placeholder="Optimal length is 150-160 characters"
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 resize-none"
-                />
-              </div>
-            </div>
-          )}
-        </Card>
-      </div>
-
-      {/* RIGHT COLUMN: Sticky Sidebar */}
-      <div className="w-full lg:w-80 flex-shrink-0">
-        <div className="sticky top-6 space-y-6">
-          <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden">
-            <CardHeader className="bg-slate-50 border-b border-slate-100 pb-4">
-              <CardTitle className="text-base font-semibold text-slate-800">Publish Settings</CardTitle>
-            </CardHeader>
-            <CardContent className="p-6 space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
-                <select className="w-full px-4 py-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 appearance-none">
-                  <option value="Draft">Draft</option>
-                  <option value="Published">Published</option>
-                </select>
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => router.push('/admin/cms/pages')}
-                  className="flex-1 px-4 py-2 border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    alert('Page saved!');
-                    router.push('/admin/cms/pages');
-                  }}
-                  className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
-                >
-                  Save Page
-                </button>
-              </div>
-            </CardContent>
-          </Card>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={isSubmitting}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-10 px-8 gap-2 shadow-sm"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" /> Submit
+              </>
+            )}
+          </Button>
         </div>
-      </div>
+      </form>
     </div>
+  );
+}
+
+export default function PageCreatePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex h-72 items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-emerald-500" />
+        </div>
+      }
+    >
+      <PageCreateForm />
+    </Suspense>
   );
 }

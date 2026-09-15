@@ -24,7 +24,7 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { JwtPayload } from '../auth/interfaces/jwt-payload.interface';
-import { createMulterConfig } from '../common/upload/multer.config';
+import { createMulterConfig, resolveUploadedFile } from '../common/upload/multer.config';
 import { ExpenseStatus, ModuleName, PermissionAction } from '@prisma/client';
 
 @Controller()
@@ -99,12 +99,12 @@ export class ExpenseController {
   @Post('expenses')
   @RequirePermission({ module: ModuleName.EXPENSE, action: PermissionAction.CREATE })
   @UseInterceptors(FileInterceptor('attachment', createMulterConfig('expenses')))
-  createExpense(
+  async createExpense(
     @Body() dto: CreateExpenseDto,
     @UploadedFile() file: Express.Multer.File | undefined,
     @CurrentUser() user: JwtPayload,
   ) {
-    const attachmentUrl = file ? `/uploads/expenses/${file.filename}` : undefined;
+    const attachmentUrl = file ? ((await resolveUploadedFile(file, 'expenses')) || `/uploads/expenses/${file.filename}`) : undefined;
     return this.expenseService.createExpense(dto, user.sub, attachmentUrl);
   }
 

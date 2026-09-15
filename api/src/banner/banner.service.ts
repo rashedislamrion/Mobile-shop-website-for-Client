@@ -45,7 +45,7 @@ export class BannerService {
       data: {
         imageUrl: dto.imageUrl,
         title: dto.title || null,
-        linkUrl: dto.linkUrl,
+        linkUrl: dto.linkUrl || '#',
         sortOrder: dto.sortOrder !== undefined ? dto.sortOrder : 0,
         startDate: dto.startDate ? new Date(dto.startDate) : null,
         endDate: dto.endDate ? new Date(dto.endDate) : null,

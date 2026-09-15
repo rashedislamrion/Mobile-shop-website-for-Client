@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { CategoryService } from './category.service';
-import { CreateCategoryDto } from './dto/create-category.dto';
+import { CreateCategoryDto, BulkDeleteCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { Public } from '../auth/decorators/public.decorator';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
@@ -60,6 +60,12 @@ export class CategoryController {
     @UploadedFile() file?: Express.Multer.File,
   ) {
     return this.categoryService.update(id, dto, file);
+  }
+
+  @RequirePermission({ module: ModuleName.CATEGORY, action: PermissionAction.DELETE })
+  @Delete('bulk')
+  removeBulk(@Body() dto: BulkDeleteCategoryDto) {
+    return this.categoryService.removeBulk(dto.ids);
   }
 
   @RequirePermission({ module: ModuleName.CATEGORY, action: PermissionAction.DELETE })

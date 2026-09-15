@@ -89,8 +89,13 @@ let AuthService = class AuthService {
         return this.generateTokens(customer.id, 'CUSTOMER');
     }
     async loginStaff(dto) {
-        const staff = await this.prisma.staff.findUnique({
-            where: { email: dto.email },
+        const identifier = dto.email || dto.emailOrPhone;
+        if (!identifier)
+            throw new common_1.UnauthorizedException('Email is required');
+        const staff = await this.prisma.staff.findFirst({
+            where: {
+                OR: [{ email: identifier }, { phone: identifier }],
+            },
             include: { role: true },
         });
         if (!staff)
@@ -101,7 +106,22 @@ let AuthService = class AuthService {
         const isValid = await bcrypt.compare(dto.password, staff.passwordHash);
         if (!isValid)
             throw new common_1.UnauthorizedException('Invalid credentials');
-        return this.generateTokens(staff.id, 'STAFF', staff.roleId, staff.role?.name, staff.branchId);
+        if (!staff.adminPanelAccess) {
+            throw new common_1.ForbiddenException('Your account does not have access to the Admin Panel. Please contact your administrator.');
+        }
+        const tokens = await this.generateTokens(staff.id, 'STAFF', staff.roleId, staff.role?.name, staff.branchId);
+        return {
+            ...tokens,
+            user: {
+                id: staff.id,
+                name: staff.name,
+                email: staff.email,
+                phone: staff.phone,
+                userType: 'STAFF',
+                role: staff.role,
+                branchId: staff.branchId,
+            },
+        };
     }
     async refreshTokens(refreshToken) {
         let decoded;

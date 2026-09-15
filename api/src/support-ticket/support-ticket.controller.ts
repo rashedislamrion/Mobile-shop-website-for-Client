@@ -43,6 +43,7 @@ export class SupportTicketController {
     @Query('issueTypeId') issueTypeId?: string,
     @Query('assignedToId') assignedToId?: string,
     @Query('search') search?: string,
+    @Query('sortBy') sortBy?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
@@ -51,6 +52,7 @@ export class SupportTicketController {
       issueTypeId,
       assignedToId,
       search,
+      sortBy,
       page,
       limit,
     });

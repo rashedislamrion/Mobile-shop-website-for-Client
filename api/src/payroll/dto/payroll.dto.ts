@@ -24,4 +24,9 @@ export class MarkPaidDto {
   @IsString()
   @IsOptional()
   walletTypeId?: string;
+
+  @IsString()
+  @IsOptional()
+  note?: string;
 }
+

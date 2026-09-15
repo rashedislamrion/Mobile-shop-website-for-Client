@@ -18,11 +18,15 @@ export class CreateSupplierDto {
 
   @IsString()
   @IsOptional()
+  companyName?: string;
+
+  @IsString()
+  @IsOptional()
   logo?: string;
 
   @IsString()
-  @IsNotEmpty()
-  contactPerson: string;
+  @IsOptional()
+  contactPerson?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -36,6 +40,10 @@ export class CreateSupplierDto {
   @IsNotEmpty()
   address: string;
 
+  @IsString()
+  @IsOptional()
+  productsCategory?: string;
+
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
@@ -44,6 +52,11 @@ export class CreateSupplierDto {
   @IsEnum(SupplierPaymentTerm)
   @IsOptional()
   paymentTerms?: SupplierPaymentTerm = SupplierPaymentTerm.COD;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  advanceBalance?: number = 0;
 
   @IsNumber()
   @IsOptional()
@@ -59,6 +72,10 @@ export class UpdateSupplierDto {
   @IsString()
   @IsOptional()
   name?: string;
+
+  @IsString()
+  @IsOptional()
+  companyName?: string;
 
   @IsString()
   @IsOptional()
@@ -80,6 +97,10 @@ export class UpdateSupplierDto {
   @IsOptional()
   address?: string;
 
+  @IsString()
+  @IsOptional()
+  productsCategory?: string;
+
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
@@ -88,6 +109,11 @@ export class UpdateSupplierDto {
   @IsEnum(SupplierPaymentTerm)
   @IsOptional()
   paymentTerms?: SupplierPaymentTerm;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  advanceBalance?: number;
 
   @IsEnum(StaffStatus)
   @IsOptional()

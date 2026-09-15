@@ -171,6 +171,7 @@ export class OrderService {
               },
             },
             variant: true,
+            phoneUnits: true,
           },
         },
         statusHistory: {
@@ -230,6 +231,14 @@ export class OrderService {
       // 1. Fetch products & variants for name snapshots and stock verification
       let subtotal = 0;
       const orderItemsData: any[] = [];
+      const phoneUnitAssignments: Array<{
+        index: number;
+        phoneUnitId: string;
+        warrantyType?: string;
+        warrantyPeriod?: string;
+        warrantyStartDate?: string;
+        warrantyEndDate?: string;
+      }> = [];
 
       for (const item of dto.items) {
         const product = await tx.product.findUnique({
@@ -249,16 +258,98 @@ export class OrderService {
         // Validate stock if POS immediate sale
         const isPos = dto.saleType === SaleType.POS;
         if (isPos && variant) {
-          if (variant.stock < item.quantity) {
-            throw new ConflictException(
-              `Insufficient stock for "${product.name}" (${variant.color || ''} ${variant.quality || ''}). Available: ${variant.stock}, Requested: ${item.quantity}`,
-            );
+          if (item.phoneUnitId) {
+            const phoneUnit = await tx.phoneUnit.findUnique({
+              where: { id: item.phoneUnitId },
+            });
+            if (!phoneUnit) {
+              throw new NotFoundException(`Phone unit not found.`);
+            }
+            if (phoneUnit.status !== 'IN_STOCK') {
+              throw new ConflictException(
+                `Phone unit (IMEI: ${phoneUnit.imei1}) is no longer in stock. Current status: ${phoneUnit.status}`,
+              );
+            }
+
+            // Decrement variant stock if positive
+            if (variant.stock > 0) {
+              await tx.productVariant.update({
+                where: { id: variant.id },
+                data: { stock: { decrement: 1 } },
+              });
+            }
+
+            // Decrement branch inventory if present
+            if (dto.branchId) {
+              const branchInv = await tx.branchInventory.findUnique({
+                where: {
+                  branchId_productVariantId: {
+                    branchId: dto.branchId,
+                    productVariantId: variant.id,
+                  },
+                },
+              });
+              if (branchInv && branchInv.quantity > 0) {
+                await tx.branchInventory.update({
+                  where: {
+                    branchId_productVariantId: {
+                      branchId: dto.branchId,
+                      productVariantId: variant.id,
+                    },
+                  },
+                  data: { quantity: { decrement: 1 } },
+                });
+              }
+            }
+
+            phoneUnitAssignments.push({
+              index: orderItemsData.length,
+              phoneUnitId: item.phoneUnitId,
+              warrantyType: item.warrantyType || (item as any).serviceWarranty,
+              warrantyPeriod: item.warrantyPeriod,
+              warrantyStartDate: item.warrantyStartDate,
+              warrantyEndDate: item.warrantyEndDate,
+            });
+          } else {
+            let branchStock = variant.stock;
+
+            if (dto.branchId) {
+              const branchInv = await tx.branchInventory.findUnique({
+                where: {
+                  branchId_productVariantId: {
+                    branchId: dto.branchId,
+                    productVariantId: variant.id,
+                  },
+                },
+              });
+              branchStock = branchInv ? branchInv.quantity : 0;
+            }
+
+            if (branchStock < item.quantity) {
+              throw new ConflictException(
+                `Insufficient stock for "${product.name}" (${variant.color || ''} ${variant.quality || ''}). Available: ${branchStock}, Requested: ${item.quantity}`,
+              );
+            }
+
+            // Deduct from branch inventory
+            if (dto.branchId) {
+              await tx.branchInventory.update({
+                where: {
+                  branchId_productVariantId: {
+                    branchId: dto.branchId,
+                    productVariantId: variant.id,
+                  },
+                },
+                data: { quantity: { decrement: item.quantity } },
+              });
+            }
+
+            // Deduct stock
+            await tx.productVariant.update({
+              where: { id: variant.id },
+              data: { stock: { decrement: item.quantity } },
+            });
           }
-          // Deduct stock
-          await tx.productVariant.update({
-            where: { id: variant.id },
-            data: { stock: { decrement: item.quantity } },
-          });
         }
 
         const unitPrice = Number(item.unitPrice ?? variant?.price ?? product.regularPrice);
@@ -321,6 +412,7 @@ export class OrderService {
           dueAmount,
           staffId: user?.userType === 'STAFF' ? user.sub : null,
           shippingAddressId: dto.shippingAddressId || null,
+          saleDate: dto.saleDate ? new Date(dto.saleDate) : new Date(),
           items: {
             create: orderItemsData,
           },
@@ -368,13 +460,71 @@ export class OrderService {
             : {}),
         },
         include: {
-          items: true,
+          items: {
+            include: {
+              phoneUnits: true,
+              product: true,
+              variant: true,
+            },
+          },
           customer: true,
           branch: true,
           serviceJob: true,
           shipment: true,
         },
       });
+
+      // Update phone units to SOLD and link to order & order item
+      for (const assignment of phoneUnitAssignments) {
+        const matchingItem = order.items[assignment.index];
+        await tx.phoneUnit.update({
+          where: { id: assignment.phoneUnitId },
+          data: {
+            status: 'SOLD',
+            saleId: order.id,
+            orderItemId: matchingItem ? matchingItem.id : null,
+            warrantyType: assignment.warrantyType || null,
+            warrantyPeriod: assignment.warrantyPeriod || null,
+            warrantyStartDate: assignment.warrantyStartDate ? new Date(assignment.warrantyStartDate) : new Date(),
+            warrantyEndDate: assignment.warrantyEndDate ? new Date(assignment.warrantyEndDate) : null,
+          },
+        });
+      }
+
+      // Synchronize with Customer module (Fix Pass 18 stats and payment ledger)
+      if (dto.customerId) {
+        await tx.customerActivity.create({
+          data: {
+            customerId: dto.customerId,
+            type: 'ORDER_PLACED' as any,
+            description: `Placed order #${orderCode} for ৳${totalAmount.toLocaleString()}`,
+            metadata: { orderId: order.id, orderCode, totalAmount, saleType: effectiveSaleType },
+          },
+        });
+
+        if (paidAmount > 0) {
+          await tx.payment.create({
+            data: {
+              customerId: dto.customerId,
+              orderId: order.id,
+              amount: new Prisma.Decimal(paidAmount),
+              discount: new Prisma.Decimal(discountAmount),
+              paymentMethod: dto.paymentMethod || 'CASH',
+              paymentChannel: 'POS',
+              note: dto.note || `POS Payment for order #${orderCode}`,
+            },
+          });
+
+          await tx.customerActivity.create({
+            data: {
+              customerId: dto.customerId,
+              type: 'PAYMENT_RECEIVED' as any,
+              description: `Received payment of ৳${paidAmount.toLocaleString()} for order #${orderCode}`,
+              metadata: { orderId: order.id, orderCode, paidAmount },
+            },
+          });
+        }
+      }
 
       return order;
     });

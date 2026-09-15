@@ -26,6 +26,30 @@ export class CreateOrderItemDto {
   @Transform(({ value }) => Number(value))
   @IsNumber()
   unitPrice: number;
+
+  @IsString()
+  @IsOptional()
+  phoneUnitId?: string;
+
+  @IsString()
+  @IsOptional()
+  warrantyType?: string;
+
+  @IsString()
+  @IsOptional()
+  warrantyPeriod?: string;
+
+  @IsString()
+  @IsOptional()
+  serviceWarranty?: string;
+
+  @IsString()
+  @IsOptional()
+  warrantyStartDate?: string;
+
+  @IsString()
+  @IsOptional()
+  warrantyEndDate?: string;
 }
 
 export class CreateOrderDto {
@@ -102,4 +126,8 @@ export class CreateOrderDto {
   @IsString()
   @IsOptional()
   technicianId?: string;
+
+  @IsString()
+  @IsOptional()
+  saleDate?: string;
 }

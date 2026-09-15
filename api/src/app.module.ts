@@ -40,9 +40,16 @@ import { TicketIssueTypeModule } from './ticket-issue-type/ticket-issue-type.mod
 import { SupportTicketModule } from './support-ticket/support-ticket.module';
 import { HelpNoteModule } from './help-note/help-note.module';
 import { BusinessSettingsModule } from './business-settings/business-settings.module';
+import { CurrencyModule } from './currency/currency.module';
+import { DeliveryChargeModule } from './delivery-charge/delivery-charge.module';
 import { ThirdPartyConfigModule } from './third-party-config/third-party-config.module';
 import { PaymentModule } from './payment/payment.module';
 import { StockAdjustmentModule } from './stock-adjustment/stock-adjustment.module';
+import { WastedProductModule } from './wasted-product/wasted-product.module';
+import { CustomerModule } from './customer/customer.module';
+import { PosModule } from './pos/pos.module';
+import { PhoneUnitModule } from './phone-unit/phone-unit.module';
+import { ServiceLookupModule } from './service-lookup/service-lookup.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
@@ -93,9 +100,16 @@ import { PermissionsGuard } from './auth/guards/permissions.guard';
     SupportTicketModule,
     HelpNoteModule,
     BusinessSettingsModule,
+    CurrencyModule,
+    DeliveryChargeModule,
     ThirdPartyConfigModule,
     PaymentModule,
     StockAdjustmentModule,
+    WastedProductModule,
+    CustomerModule,
+    PosModule,
+    PhoneUnitModule,
+    ServiceLookupModule,
   ],
   controllers: [AppController],
   providers: [

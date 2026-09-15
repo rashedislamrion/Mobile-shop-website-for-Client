@@ -4,36 +4,140 @@ export const API_BASE_URL =
 export const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
 
-let inMemoryToken: string | null = typeof window !== 'undefined' ? localStorage.getItem('novamobile_access_token') : null;
-let unauthorizedListeners: Array<() => void> = [];
+export const CUSTOMER_TOKEN_KEY = 'novamobile_customer_token';
+export const STAFF_TOKEN_KEY = 'novamobile_staff_token';
 
-export function getAccessToken(): string | null {
-  if (!inMemoryToken && typeof window !== 'undefined') {
-    inMemoryToken = localStorage.getItem('novamobile_access_token');
+let inMemoryCustomerToken: string | null =
+  typeof window !== 'undefined' ? localStorage.getItem(CUSTOMER_TOKEN_KEY) : null;
+let inMemoryStaffToken: string | null =
+  typeof window !== 'undefined' ? localStorage.getItem(STAFF_TOKEN_KEY) : null;
+
+let customerUnauthorizedListeners: Array<() => void> = [];
+let staffUnauthorizedListeners: Array<() => void> = [];
+let genericUnauthorizedListeners: Array<() => void> = [];
+
+export function getCustomerToken(): string | null {
+  if (!inMemoryCustomerToken && typeof window !== 'undefined') {
+    inMemoryCustomerToken = localStorage.getItem(CUSTOMER_TOKEN_KEY);
   }
-  return inMemoryToken;
+  return inMemoryCustomerToken;
 }
 
-export function setAccessToken(token: string | null): void {
-  inMemoryToken = token;
+export function setCustomerToken(token: string | null): void {
+  inMemoryCustomerToken = token;
   if (typeof window !== 'undefined') {
     if (token) {
-      localStorage.setItem('novamobile_access_token', token);
+      localStorage.setItem(CUSTOMER_TOKEN_KEY, token);
     } else {
-      localStorage.removeItem('novamobile_access_token');
+      localStorage.removeItem(CUSTOMER_TOKEN_KEY);
     }
   }
 }
 
+export function getStaffToken(): string | null {
+  if (!inMemoryStaffToken && typeof window !== 'undefined') {
+    inMemoryStaffToken = localStorage.getItem(STAFF_TOKEN_KEY);
+  }
+  return inMemoryStaffToken;
+}
+
+export function setStaffToken(token: string | null): void {
+  inMemoryStaffToken = token;
+  if (typeof window !== 'undefined') {
+    if (token) {
+      localStorage.setItem(STAFF_TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(STAFF_TOKEN_KEY);
+    }
+  }
+}
+
+export function getEffectiveToken(
+  endpoint?: string,
+  explicitScope?: 'STAFF' | 'CUSTOMER'
+): string | null {
+  if (explicitScope === 'STAFF') return getStaffToken();
+  if (explicitScope === 'CUSTOMER') return getCustomerToken();
+
+  const isStaffTarget =
+    (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) ||
+    (endpoint && (endpoint.includes('/auth/staff') || endpoint.includes('/stock-adjustments/batch')));
+
+  if (isStaffTarget) {
+    return getStaffToken() || getCustomerToken();
+  }
+
+  const isCustomerTarget =
+    endpoint && (endpoint.includes('/auth/customer') || endpoint.includes('/orders/checkout'));
+
+  if (isCustomerTarget) {
+    return getCustomerToken() || getStaffToken();
+  }
+
+  return (
+    (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')
+      ? getStaffToken() || getCustomerToken()
+      : getCustomerToken() || getStaffToken())
+  );
+}
+
+// Backwards-compatible aliases
+export function getAccessToken(): string | null {
+  return getEffectiveToken();
+}
+
+export function getAuthToken(): string | null {
+  return getEffectiveToken();
+}
+
+export function setAccessToken(token: string | null, scope?: 'STAFF' | 'CUSTOMER'): void {
+  if (scope === 'STAFF') {
+    setStaffToken(token);
+    return;
+  }
+  if (scope === 'CUSTOMER') {
+    setCustomerToken(token);
+    return;
+  }
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+    setStaffToken(token);
+  } else {
+    setCustomerToken(token);
+  }
+}
+
 export function onUnauthorized(listener: () => void): () => void {
-  unauthorizedListeners.push(listener);
+  genericUnauthorizedListeners.push(listener);
   return () => {
-    unauthorizedListeners = unauthorizedListeners.filter((l) => l !== listener);
+    genericUnauthorizedListeners = genericUnauthorizedListeners.filter((l) => l !== listener);
   };
 }
 
-function notifyUnauthorized() {
-  unauthorizedListeners.forEach((listener) => {
+export function onStaffUnauthorized(listener: () => void): () => void {
+  staffUnauthorizedListeners.push(listener);
+  return () => {
+    staffUnauthorizedListeners = staffUnauthorizedListeners.filter((l) => l !== listener);
+  };
+}
+
+export function onCustomerUnauthorized(listener: () => void): () => void {
+  customerUnauthorizedListeners.push(listener);
+  return () => {
+    customerUnauthorizedListeners = customerUnauthorizedListeners.filter((l) => l !== listener);
+  };
+}
+
+function notifyUnauthorized(scope?: 'STAFF' | 'CUSTOMER') {
+  if (scope === 'STAFF') {
+    staffUnauthorizedListeners.forEach((l) => {
+      try { l(); } catch (e) { console.error(e); }
+    });
+  } else if (scope === 'CUSTOMER') {
+    customerUnauthorizedListeners.forEach((l) => {
+      try { l(); } catch (e) { console.error(e); }
+    });
+  }
+  genericUnauthorizedListeners.forEach((listener) => {
     try {
       listener();
     } catch (e) {
@@ -44,10 +148,12 @@ function notifyUnauthorized() {
 
 export function getImageUrl(path?: string | null, fallback = '/images/placeholder.png'): string {
   if (!path) return fallback;
+  if (typeof path !== 'string') return fallback;
   if (path.startsWith('http://') || path.startsWith('https://')) return path;
   if (path.startsWith('/uploads/')) return `${BACKEND_URL}${path}`;
   if (path.startsWith('uploads/')) return `${BACKEND_URL}/${path}`;
-  return path;
+  if (path.startsWith('/')) return path;
+  return `${BACKEND_URL}/uploads/${path}`;
 }
 
 export class ApiError extends Error {
@@ -62,52 +168,99 @@ export class ApiError extends Error {
   }
 }
 
-let isRefreshing = false;
-let refreshPromise: Promise<string | null> | null = null;
+let isRefreshingCustomer = false;
+let customerRefreshPromise: Promise<string | null> | null = null;
 
-async function refreshAccessToken(): Promise<string | null> {
-  if (isRefreshing && refreshPromise) {
-    return refreshPromise;
+let isRefreshingStaff = false;
+let staffRefreshPromise: Promise<string | null> | null = null;
+
+export async function refreshCustomerToken(): Promise<string | null> {
+  if (isRefreshingCustomer && customerRefreshPromise) {
+    return customerRefreshPromise;
   }
 
-  isRefreshing = true;
-  refreshPromise = (async () => {
+  isRefreshingCustomer = true;
+  customerRefreshPromise = (async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      const res = await fetch(`${API_BASE_URL}/auth/customer/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
       });
 
       if (!res.ok) {
-        setAccessToken(null);
-        notifyUnauthorized();
+        setCustomerToken(null);
+        notifyUnauthorized('CUSTOMER');
         return null;
       }
 
       const data = await res.json();
       const newToken = data.accessToken;
       if (newToken) {
-        setAccessToken(newToken);
+        setCustomerToken(newToken);
         return newToken;
       }
       return null;
     } catch {
-      setAccessToken(null);
-      notifyUnauthorized();
+      setCustomerToken(null);
+      notifyUnauthorized('CUSTOMER');
       return null;
     } finally {
-      isRefreshing = false;
-      refreshPromise = null;
+      isRefreshingCustomer = false;
+      customerRefreshPromise = null;
     }
   })();
 
-  return refreshPromise;
+  return customerRefreshPromise;
+}
+
+export async function refreshStaffToken(): Promise<string | null> {
+  if (isRefreshingStaff && staffRefreshPromise) {
+    return staffRefreshPromise;
+  }
+
+  isRefreshingStaff = true;
+  staffRefreshPromise = (async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/staff/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+      });
+
+      if (!res.ok) {
+        setStaffToken(null);
+        notifyUnauthorized('STAFF');
+        return null;
+      }
+
+      const data = await res.json();
+      const newToken = data.accessToken;
+      if (newToken) {
+        setStaffToken(newToken);
+        return newToken;
+      }
+      return null;
+    } catch {
+      setStaffToken(null);
+      notifyUnauthorized('STAFF');
+      return null;
+    } finally {
+      isRefreshingStaff = false;
+      staffRefreshPromise = null;
+    }
+  })();
+
+  return staffRefreshPromise;
+}
+
+export interface ApiFetchOptions extends RequestInit {
+  authScope?: 'STAFF' | 'CUSTOMER';
 }
 
 export async function apiFetch<T>(
   endpoint: string,
-  options: RequestInit = {},
+  options: ApiFetchOptions = {},
   isRetry = false,
 ): Promise<T> {
   const url = endpoint.startsWith('http')
@@ -116,7 +269,7 @@ export async function apiFetch<T>(
 
   const headers = new Headers(options.headers || {});
 
-  const token = getAccessToken();
+  const token = getEffectiveToken(endpoint, options.authScope);
   if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
   }
@@ -142,7 +295,15 @@ export async function apiFetch<T>(
       !endpoint.includes("refresh") &&
       !endpoint.includes("register")
     ) {
-      const newToken = await refreshAccessToken();
+      const isStaff =
+        options.authScope === 'STAFF' ||
+        (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) ||
+        endpoint.includes('/auth/staff');
+
+      const newToken = isStaff
+        ? await refreshStaffToken()
+        : await refreshCustomerToken();
+
       if (newToken) {
         headers.set('Authorization', `Bearer ${newToken}`);
         return apiFetch<T>(endpoint, { ...options, headers }, true);
@@ -198,7 +359,7 @@ export function buildQueryString(params?: Record<string, any>): string {
 export async function apiGet<T>(
   endpoint: string,
   params?: Record<string, any>,
-  options?: RequestInit,
+  options?: ApiFetchOptions,
 ): Promise<T> {
   const qs = buildQueryString(params);
   return apiFetch<T>(`${endpoint}${qs}`, { ...options, method: 'GET' });
@@ -207,7 +368,7 @@ export async function apiGet<T>(
 export async function apiPost<T>(
   endpoint: string,
   data?: any,
-  options?: RequestInit,
+  options?: ApiFetchOptions,
 ): Promise<T> {
   const isFormData = typeof FormData !== 'undefined' && data instanceof FormData;
   const body = isFormData ? data : data !== undefined ? JSON.stringify(data) : undefined;
@@ -222,7 +383,7 @@ export async function apiPost<T>(
 export async function apiPatch<T>(
   endpoint: string,
   data?: any,
-  options?: RequestInit,
+  options?: ApiFetchOptions,
 ): Promise<T> {
   const isFormData = typeof FormData !== 'undefined' && data instanceof FormData;
   const body = isFormData ? data : data !== undefined ? JSON.stringify(data) : undefined;
@@ -236,7 +397,8 @@ export async function apiPatch<T>(
 
 export async function apiDelete<T>(
   endpoint: string,
-  options?: RequestInit,
+  options?: ApiFetchOptions,
 ): Promise<T> {
   return apiFetch<T>(endpoint, { ...options, method: 'DELETE' });
 }
+

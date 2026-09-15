@@ -8,7 +8,11 @@ import {
   Delete,
   Query,
   UseGuards,
+  UseInterceptors,
+  UploadedFiles,
 } from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { createMulterConfig, resolveUploadedFile } from '../common/upload/multer.config';
 import { AdService } from './ad.service';
 import { CreateAdDto, UpdateAdDto, TrackAdDto } from './dto/ad.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -46,13 +50,56 @@ export class AdController {
 
   @Post()
   @RequirePermission({ module: ModuleName.ADS, action: PermissionAction.CREATE })
-  create(@Body() createAdDto: CreateAdDto) {
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'image', maxCount: 1 },
+        { name: 'thumbnail', maxCount: 1 },
+        { name: 'mobileThumbnail', maxCount: 1 },
+      ],
+      createMulterConfig('ads'),
+    ),
+  )
+  async create(
+    @Body() createAdDto: CreateAdDto,
+    @UploadedFiles()
+    files?: {
+      image?: Express.Multer.File[];
+      thumbnail?: Express.Multer.File[];
+      mobileThumbnail?: Express.Multer.File[];
+    },
+  ) {
+    if (files?.image?.[0]) createAdDto.imageUrl = (await resolveUploadedFile(files.image[0], 'ads')) || `/uploads/ads/${files.image[0].filename}`;
+    if (files?.thumbnail?.[0]) createAdDto.imageUrl = (await resolveUploadedFile(files.thumbnail[0], 'ads')) || `/uploads/ads/${files.thumbnail[0].filename}`;
+    if (files?.mobileThumbnail?.[0]) createAdDto.mobileThumbnailUrl = (await resolveUploadedFile(files.mobileThumbnail[0], 'ads')) || `/uploads/ads/${files.mobileThumbnail[0].filename}`;
     return this.adService.create(createAdDto);
   }
 
   @Patch(':id')
   @RequirePermission({ module: ModuleName.ADS, action: PermissionAction.UPDATE })
-  update(@Param('id') id: string, @Body() updateAdDto: UpdateAdDto) {
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'image', maxCount: 1 },
+        { name: 'thumbnail', maxCount: 1 },
+        { name: 'mobileThumbnail', maxCount: 1 },
+      ],
+      createMulterConfig('ads'),
+    ),
+  )
+  async update(
+    @Param('id') id: string,
+    @Body() updateAdDto: UpdateAdDto,
+    @UploadedFiles()
+    files?: {
+      image?: Express.Multer.File[];
+      thumbnail?: Express.Multer.File[];
+      mobileThumbnail?: Express.Multer.File[];
+    },
+  ) {
+    if (files?.image?.[0]) updateAdDto.imageUrl = (await resolveUploadedFile(files.image[0], 'ads')) || `/uploads/ads/${files.image[0].filename}`;
+    if (files?.thumbnail?.[0]) updateAdDto.imageUrl = (await resolveUploadedFile(files.thumbnail[0], 'ads')) || `/uploads/ads/${files.thumbnail[0].filename}`;
+    if (files?.mobileThumbnail?.[0]) updateAdDto.mobileThumbnailUrl = (await resolveUploadedFile(files.mobileThumbnail[0], 'ads')) || `/uploads/ads/${files.mobileThumbnail[0].filename}`;
     return this.adService.update(id, updateAdDto);
   }
 

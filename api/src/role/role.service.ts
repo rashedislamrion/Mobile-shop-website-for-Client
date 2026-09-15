@@ -13,13 +13,25 @@ export class RoleService {
   constructor(private prisma: PrismaService) {}
 
   async findAll() {
-    return this.prisma.role.findMany({
+    const roles = await this.prisma.role.findMany({
       orderBy: { isSystem: 'desc' },
       include: {
         _count: {
           select: { staff: true },
         },
+        permissions: {
+          where: { allowed: true },
+          select: { id: true },
+        },
       },
+    });
+
+    return roles.map((r) => {
+      const { permissions, ...rest } = r;
+      return {
+        ...rest,
+        permissionCount: permissions.length,
+      };
     });
   }
 
@@ -166,5 +178,74 @@ export class RoleService {
     }
 
     return this.prisma.role.delete({ where: { id } });
+  }
+
+  async getRoleBranchPermissions(roleId: string) {
+    await this.findOne(roleId);
+
+    const [branches, existingRoleBranchPerms] = await Promise.all([
+      this.prisma.branch.findMany({
+        orderBy: { name: 'asc' },
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          type: true,
+          address: true,
+          city: true,
+        },
+      }),
+      this.prisma.roleBranchPermission.findMany({
+        where: { roleId },
+      }),
+    ]);
+
+    const accessMap = new Map<string, boolean>();
+    for (const p of existingRoleBranchPerms) {
+      accessMap.set(p.branchId, p.canAccess);
+    }
+
+    return branches.map((b) => ({
+      branchId: b.id,
+      branchName: b.name,
+      branchCode: b.code,
+      branchType: b.type,
+      branchAddress: b.address,
+      branchCity: b.city,
+      canAccess: accessMap.get(b.id) ?? false,
+    }));
+  }
+
+  async updateRoleBranchPermissions(
+    roleId: string,
+    dto: { branchPermissions: Array<{ branchId: string; canAccess: boolean }> },
+  ) {
+    await this.findOne(roleId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const upsertPromises = dto.branchPermissions.map((bp) =>
+        tx.roleBranchPermission.upsert({
+          where: {
+            roleId_branchId: {
+              roleId,
+              branchId: bp.branchId,
+            },
+          },
+          update: { canAccess: bp.canAccess },
+          create: {
+            roleId,
+            branchId: bp.branchId,
+            canAccess: bp.canAccess,
+          },
+        }),
+      );
+
+      await Promise.all(upsertPromises);
+
+      return {
+        success: true,
+        message: 'Branch permissions updated successfully.',
+      };
+    });
   }
 }

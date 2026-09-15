@@ -2,13 +2,21 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CreatePurchaseOrderDto,
   ReceivePurchaseOrderDto,
+  ReturnPurchaseOrderDto,
 } from './dto/purchase-order.dto';
-import { Prisma, PurchaseOrderStatus, WalletTxnType } from '@prisma/client';
+import {
+  Prisma,
+  PurchaseOrderStatus,
+  StockAdjustmentType,
+  WalletTxnType,
+} from '@prisma/client';
+import { resolveUploadedFile } from '../common/upload/multer.config';
 
 @Injectable()
 export class PurchaseOrderService {
@@ -18,6 +26,7 @@ export class PurchaseOrderService {
     branch?: string;
     supplier?: string;
     status?: PurchaseOrderStatus;
+    paymentStatus?: string;
     dateFrom?: string;
     dateTo?: string;
     search?: string;
@@ -34,6 +43,20 @@ export class PurchaseOrderService {
     if (query?.supplier) where.supplierId = query.supplier;
     if (query?.status) where.status = query.status;
 
+    if (query?.paymentStatus) {
+      const ps = query.paymentStatus.toUpperCase();
+      if (ps === 'PAID') {
+        where.dueAmount = { lte: 0 };
+        where.status = { not: PurchaseOrderStatus.DRAFT };
+      } else if (ps === 'DUE') {
+        where.dueAmount = { gt: 0 };
+        where.amountPaid = { equals: 0 };
+      } else if (ps === 'PARTIAL') {
+        where.dueAmount = { gt: 0 };
+        where.amountPaid = { gt: 0 };
+      }
+    }
+
     if (query?.dateFrom || query?.dateTo) {
       where.createdAt = {};
       if (query.dateFrom) where.createdAt.gte = new Date(query.dateFrom);
@@ -48,7 +71,9 @@ export class PurchaseOrderService {
       const term = query.search.trim();
       where.OR = [
         { poNumber: { contains: term, mode: 'insensitive' } },
+        { invoiceNumber: { contains: term, mode: 'insensitive' } },
         { supplier: { name: { contains: term, mode: 'insensitive' } } },
+        { supplier: { phone: { contains: term, mode: 'insensitive' } } },
       ];
     }
 
@@ -61,14 +86,19 @@ export class PurchaseOrderService {
         where,
         include: {
           branch: { select: { id: true, name: true, code: true } },
-          supplier: { select: { id: true, name: true, phone: true } },
+          supplier: { select: { id: true, name: true, phone: true, advanceBalance: true } },
           items: {
             include: {
-              product: { select: { id: true, name: true } },
+              product: { select: { id: true, name: true, images: true } },
               variant: { select: { id: true, sku: true, color: true, quality: true } },
             },
           },
-          payments: true,
+          payments: {
+            include: {
+              walletType: { select: { id: true, name: true } },
+              recordedBy: { select: { id: true, name: true } },
+            },
+          },
         },
         orderBy: { createdAt: 'desc' },
         skip,
@@ -77,6 +107,7 @@ export class PurchaseOrderService {
       this.prisma.purchaseOrder.findMany({
         where: {
           createdAt: { gte: startOfMonth },
+          status: { not: PurchaseOrderStatus.CANCELLED },
           ...(query?.branch ? { branchId: query.branch } : {}),
         },
         select: { grandTotal: true, amountPaid: true, dueAmount: true },
@@ -99,8 +130,28 @@ export class PurchaseOrderService {
       thisMonthUnpaid += Number(po.dueAmount);
     }
 
+    const mappedData = data.map((po) => {
+      const due = Number(po.dueAmount || 0);
+      const paid = Number(po.amountPaid || 0);
+      let paymentStatus: 'PAID' | 'PARTIAL' | 'UNPAID';
+      if (po.status === PurchaseOrderStatus.DRAFT) {
+        paymentStatus = 'UNPAID';
+      } else if (due <= 0) {
+        paymentStatus = 'PAID';
+      } else if (paid > 0) {
+        paymentStatus = 'PARTIAL';
+      } else {
+        paymentStatus = 'UNPAID';
+      }
+
+      return {
+        ...po,
+        paymentStatus,
+      };
+    });
+
     return {
-      data,
+      data: mappedData,
       summary: {
         thisMonthTotal,
         thisMonthPaid,
@@ -128,6 +179,7 @@ export class PurchaseOrderService {
             variant: true,
           },
         },
+        phoneUnits: true,
         payments: {
           include: {
             walletType: { select: { id: true, name: true } },
@@ -161,6 +213,7 @@ export class PurchaseOrderService {
     const discount = Number(dto.discount || 0);
     const shippingCost = Number(dto.shippingCost || 0);
     const tax = Number(dto.tax || 0);
+    const advanceUsed = Number(dto.advanceUsed || 0);
 
     let subtotal = 0;
     const itemsData = await Promise.all(
@@ -178,71 +231,203 @@ export class PurchaseOrderService {
           productId = fallbackProduct?.id || '';
         }
 
+        let variantId = item.variantId || null;
+        if (!variantId && productId) {
+          const firstVar = await this.prisma.productVariant.findFirst({
+            where: { productId },
+          });
+          if (firstVar) {
+            variantId = firstVar.id;
+          }
+        }
+
         const lineTotal = Number(item.quantityOrdered) * Number(item.unitCost);
         subtotal += lineTotal;
         return {
           productId,
-          variantId: item.variantId || null,
+          variantId,
           quantityOrdered: item.quantityOrdered,
           unitCost: item.unitCost,
+          sellingPrice: item.sellingPrice !== undefined ? item.sellingPrice : null,
+          wholesalePrice: item.wholesalePrice !== undefined ? item.wholesalePrice : null,
+          offerPrice: item.offerPrice !== undefined ? item.offerPrice : null,
           lineTotal,
         };
       }),
     );
 
     const grandTotal = Math.max(0, subtotal - discount + shippingCost + tax);
-    const amountPaid = Math.min(grandTotal, Number(dto.amountPaid || 0));
-    const dueAmount = grandTotal - amountPaid;
 
+    // Normalize wallet payments
+    const walletPayments: Array<{ walletTypeId: string; amount: number }> = [];
+    if (dto.walletPayments && Array.isArray(dto.walletPayments) && dto.walletPayments.length > 0) {
+      for (const wp of dto.walletPayments) {
+        if (wp.walletTypeId && Number(wp.amount) > 0) {
+          walletPayments.push({
+            walletTypeId: wp.walletTypeId,
+            amount: Number(wp.amount),
+          });
+        }
+      }
+    } else if (dto.walletTypeId && Number(dto.amountPaid) > 0) {
+      walletPayments.push({
+        walletTypeId: dto.walletTypeId,
+        amount: Number(dto.amountPaid),
+      });
+    }
+
+    const totalWalletAmount = walletPayments.reduce((sum, wp) => sum + wp.amount, 0);
+    const totalAmountPaid = totalWalletAmount + advanceUsed;
+
+    // Validate Advance balance
+    if (advanceUsed > 0) {
+      const availableAdvance = Number(supplier.advanceBalance || 0);
+      if (advanceUsed > availableAdvance) {
+        throw new BadRequestException(
+          `Requested advance usage (৳${advanceUsed.toLocaleString()}) exceeds available supplier advance balance (৳${availableAdvance.toLocaleString()}).`,
+        );
+      }
+    }
+
+    // Gather and validate all phone units for IMEI uniqueness across the entire system
+    const allPhoneUnitsToCreate: Array<{
+      variantId?: string | null;
+      productId?: string | null;
+      imei1: string;
+      imei2?: string | null;
+      serialNumber?: string | null;
+      condition?: string | null;
+      buyingPrice: number;
+      sellingPrice: number;
+      warrantyType?: string | null;
+      warrantyPeriod?: string | null;
+      warrantyStartDate?: string | null;
+      warrantyEndDate?: string | null;
+    }> = [];
+
+    const seenImeisInRequest = new Set<string>();
+
+    for (const item of dto.items) {
+      if (item.phoneUnits && Array.isArray(item.phoneUnits) && item.phoneUnits.length > 0) {
+        for (const pu of item.phoneUnits) {
+          const imei1 = (pu.imei1 || '').trim();
+          const imei2 = (pu.imei2 || '').trim();
+          if (!imei1) {
+            throw new BadRequestException('IMEI 1 is required for all phone units.');
+          }
+
+          if (seenImeisInRequest.has(imei1)) {
+            throw new ConflictException(`Duplicate IMEI "${imei1}" found within the submitted purchase order items.`);
+          }
+          seenImeisInRequest.add(imei1);
+
+          if (imei2) {
+            if (seenImeisInRequest.has(imei2)) {
+              throw new ConflictException(`Duplicate IMEI "${imei2}" found within the submitted purchase order items.`);
+            }
+            seenImeisInRequest.add(imei2);
+          }
+
+          // Check against database across all existing phone units
+          const existing = await this.prisma.phoneUnit.findFirst({
+            where: {
+              OR: [
+                { imei1 },
+                { imei2: imei1 },
+                ...(imei2 ? [{ imei1: imei2 }, { imei2 }] : []),
+              ],
+            },
+          });
+
+          if (existing) {
+            throw new ConflictException(
+              `IMEI "${imei1}" already exists in the system (Status: ${existing.status}). Two phones cannot share an IMEI.`,
+            );
+          }
+
+          allPhoneUnitsToCreate.push({
+            variantId: item.variantId || null,
+            productId: item.productId || null,
+            imei1,
+            imei2: imei2 || null,
+            serialNumber: pu.serialNumber?.trim() || null,
+            condition: pu.condition || null,
+            buyingPrice: pu.buyingPrice !== undefined ? Number(pu.buyingPrice) : Number(item.unitCost),
+            sellingPrice: pu.sellingPrice !== undefined ? Number(pu.sellingPrice) : Number(item.sellingPrice || 0),
+            warrantyType: pu.warrantyType || null,
+            warrantyPeriod: pu.warrantyPeriod || null,
+            warrantyStartDate: pu.warrantyStartDate || null,
+            warrantyEndDate: pu.warrantyEndDate || null,
+          });
+        }
+      }
+    }
+
+    const dueAmount = Math.max(0, grandTotal - totalAmountPaid);
     const poNumber = `PO-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    const isDraft = dto.status === PurchaseOrderStatus.DRAFT;
 
     return this.prisma.$transaction(async (tx) => {
-      let walletTxn: any = null;
-      let paymentRecord: any = null;
+      const createdPayments: any[] = [];
+      const createdWalletTxns: any[] = [];
 
-      if (amountPaid > 0) {
-        if (!dto.walletTypeId) {
-          throw new BadRequestException(
-            'Wallet selection is required when making an advance/initial payment on a purchase order.',
-          );
+      // If NOT a draft, process financial movements
+      if (!isDraft) {
+        // Process each wallet payment
+        for (let i = 0; i < walletPayments.length; i++) {
+          const wp = walletPayments[i];
+          const wallet = await tx.walletType.findUnique({
+            where: { id: wp.walletTypeId },
+          });
+          if (!wallet) {
+            throw new NotFoundException(`Payment wallet "${wp.walletTypeId}" not found.`);
+          }
+
+          const currentBal = Number(wallet.currentBalance);
+          if (currentBal < wp.amount) {
+            throw new BadRequestException(
+              `Insufficient balance in wallet "${wallet.name}". Required: ৳${wp.amount.toLocaleString()}, Available: ৳${currentBal.toLocaleString()}.`,
+            );
+          }
+
+          const newBal = currentBal - wp.amount;
+          await tx.walletType.update({
+            where: { id: wp.walletTypeId },
+            data: { currentBalance: newBal },
+          });
+
+          const payRef = `SPAY-${Date.now()}-${i + 1}`;
+          const walletTxn = await tx.walletTransaction.create({
+            data: {
+              walletTypeId: wp.walletTypeId,
+              type: WalletTxnType.WITHDRAWAL,
+              amount: wp.amount,
+              referenceNo: `TXN-${payRef}`,
+              note: `Payment for PO ${poNumber} (Wallet: ${wallet.name})`,
+              recordedById,
+              balanceAfter: newBal,
+            },
+          });
+          createdWalletTxns.push(walletTxn);
         }
 
-        const wallet = await tx.walletType.findUnique({
-          where: { id: dto.walletTypeId },
-        });
-        if (!wallet) throw new NotFoundException('Selected payment wallet not found.');
-
-        const currentBal = Number(wallet.currentBalance);
-        if (currentBal < amountPaid) {
-          throw new BadRequestException(
-            `Insufficient balance in wallet "${wallet.name}". Required: ৳${amountPaid.toLocaleString()}, Available: ৳${currentBal.toLocaleString()}.`,
-          );
+        // Deduct advance balance from supplier if used
+        if (advanceUsed > 0) {
+          const newAdvanceBal = Number(supplier.advanceBalance) - advanceUsed;
+          await tx.supplier.update({
+            where: { id: dto.supplierId },
+            data: { advanceBalance: newAdvanceBal },
+          });
         }
-
-        const newBal = currentBal - amountPaid;
-        await tx.walletType.update({
-          where: { id: dto.walletTypeId },
-          data: { currentBalance: newBal },
-        });
-
-        const payRef = `SPAY-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
-
-        walletTxn = await tx.walletTransaction.create({
-          data: {
-            walletTypeId: dto.walletTypeId,
-            type: WalletTxnType.WITHDRAWAL,
-            amount: amountPaid,
-            referenceNo: `TXN-${payRef}`,
-            note: `Advance payment for Purchase Order ${poNumber}`,
-            recordedById,
-            balanceAfter: newBal,
-          },
-        });
       }
 
+      // Create Purchase Order
       const po = await tx.purchaseOrder.create({
         data: {
           poNumber,
+          invoiceNumber: dto.invoiceNumber || null,
+          documentUrl: dto.documentUrl || null,
+          internalNotes: dto.internalNotes || dto.note || null,
           branchId,
           supplierId: dto.supplierId,
           expectedDeliveryDate: dto.expectedDeliveryDate
@@ -254,8 +439,9 @@ export class PurchaseOrderService {
           shippingCost,
           tax,
           grandTotal,
-          amountPaid,
-          dueAmount,
+          amountPaid: isDraft ? 0 : totalAmountPaid,
+          advanceUsed: isDraft ? 0 : advanceUsed,
+          dueAmount: isDraft ? grandTotal : dueAmount,
           items: {
             create: itemsData,
           },
@@ -267,35 +453,147 @@ export class PurchaseOrderService {
         },
       });
 
-      if (amountPaid > 0) {
-        paymentRecord = await tx.supplierPayment.create({
-          data: {
-            referenceNo: `SPAY-${po.poNumber}`,
-            supplierId: dto.supplierId,
-            amount: amountPaid,
-            method: 'WALLET',
-            walletTypeId: dto.walletTypeId!,
-            purchaseOrderId: po.id,
-            note: dto.note || 'Initial payment on order creation',
-            recordedById,
-          },
+      // Create PhoneUnit records if any were supplied in this purchase
+      if (allPhoneUnitsToCreate.length > 0) {
+        for (const pu of allPhoneUnitsToCreate) {
+          let resolvedVariantId = pu.variantId;
+          if (!resolvedVariantId) {
+            const matchedItem = po.items.find((i) => i.productId === pu.productId) || po.items[0];
+            resolvedVariantId = matchedItem?.variantId || null;
+          }
+
+          if (resolvedVariantId) {
+            await tx.phoneUnit.create({
+              data: {
+                productVariantId: resolvedVariantId,
+                branchId,
+                imei1: pu.imei1,
+                imei2: pu.imei2,
+                serialNumber: pu.serialNumber,
+                status: 'IN_STOCK',
+                buyingPrice: pu.buyingPrice || 0,
+                sellingPrice: pu.sellingPrice || 0,
+                purchaseId: po.id,
+                warrantyType: pu.warrantyType,
+                warrantyPeriod: pu.warrantyPeriod,
+                warrantyStartDate: pu.warrantyStartDate ? new Date(pu.warrantyStartDate) : new Date(),
+                warrantyEndDate: pu.warrantyEndDate ? new Date(pu.warrantyEndDate) : null,
+              },
+            });
+
+            // Increment variant stock for each phone unit if not already receiving below
+            if (dto.status !== PurchaseOrderStatus.RECEIVED && (dto.status as any) !== 'COMPLETED') {
+              await tx.productVariant.update({
+                where: { id: resolvedVariantId },
+                data: { stock: { increment: 1 } },
+              });
+            }
+          }
+        }
+      }
+
+      // Create SupplierPayment records if not draft
+      if (!isDraft && walletPayments.length > 0) {
+        for (let i = 0; i < walletPayments.length; i++) {
+          const wp = walletPayments[i];
+          const sp = await tx.supplierPayment.create({
+            data: {
+              referenceNo: `SPAY-${po.poNumber}-${i + 1}`,
+              supplierId: dto.supplierId,
+              amount: wp.amount,
+              method: 'WALLET',
+              walletTypeId: wp.walletTypeId,
+              purchaseOrderId: po.id,
+              note: dto.internalNotes || dto.note || `Payment on PO creation (${i + 1}/${walletPayments.length})`,
+              recordedById,
+            },
+          });
+          createdPayments.push(sp);
+        }
+      }
+
+      // If NOT a draft, increase supplier totalDue by unpaid dueAmount
+      if (!isDraft && dueAmount > 0) {
+        const currentSupplierDue = Number(supplier.totalDue);
+        await tx.supplier.update({
+          where: { id: dto.supplierId },
+          data: { totalDue: currentSupplierDue + dueAmount },
         });
       }
 
-      // Increase supplier total due by the unpaid portion (dueAmount)
-      const currentSupplierDue = Number(supplier.totalDue);
-      await tx.supplier.update({
-        where: { id: dto.supplierId },
-        data: { totalDue: currentSupplierDue + dueAmount },
-      });
+      // If status is RECEIVED or COMPLETED, intake stock into branch inventory immediately
+      if (!isDraft && (dto.status === PurchaseOrderStatus.RECEIVED || (dto.status as any) === 'COMPLETED')) {
+        for (const item of po.items) {
+          await tx.purchaseOrderItem.update({
+            where: { id: item.id },
+            data: { quantityReceived: item.quantityOrdered },
+          });
+
+          if (item.variantId) {
+            await tx.branchInventory.upsert({
+              where: {
+                branchId_productVariantId: {
+                  branchId,
+                  productVariantId: item.variantId,
+                },
+              },
+              create: {
+                branchId,
+                productVariantId: item.variantId,
+                quantity: Number(item.quantityOrdered),
+              },
+              update: {
+                quantity: { increment: Number(item.quantityOrdered) },
+              },
+            });
+
+            const variantUpdateData: Prisma.ProductVariantUpdateInput = {
+              stock: { increment: Number(item.quantityOrdered) },
+            };
+            if (item.sellingPrice !== null && item.sellingPrice !== undefined) {
+              variantUpdateData.price = item.sellingPrice;
+            }
+            if (item.wholesalePrice !== null && item.wholesalePrice !== undefined) {
+              variantUpdateData.wholesalePrice = item.wholesalePrice;
+            }
+            if (item.unitCost !== null && item.unitCost !== undefined) {
+              variantUpdateData.buyingPrice = item.unitCost;
+            }
+
+            await tx.productVariant.update({
+              where: { id: item.variantId },
+              data: variantUpdateData,
+            });
+          }
+        }
+      }
 
       return {
         ...po,
         purchaseOrder: po,
-        supplierPayment: paymentRecord,
-        walletTransaction: walletTxn,
+        supplierPayments: createdPayments,
+        walletTransactions: createdWalletTxns,
       };
     });
+  }
+
+  async complete(id: string, recordedById: string = 'system') {
+    const po = await this.findOne(id);
+    if (po.status === PurchaseOrderStatus.RECEIVED) {
+      return po;
+    }
+
+    const unreceivedItems = po.items.map((i) => ({
+      purchaseOrderItemId: i.id,
+      variantId: i.variantId || undefined,
+      quantityReceived: Math.max(0, Number(i.quantityOrdered) - Number(i.quantityReceived)),
+    })).filter((i) => i.quantityReceived > 0);
+
+    if (unreceivedItems.length > 0) {
+      await this.receiveItems(id, { items: unreceivedItems });
+    }
+
+    return this.findOne(id);
   }
 
   async receiveItems(id: string, dto: ReceivePurchaseOrderDto) {
@@ -326,13 +624,50 @@ export class PurchaseOrderService {
           data: { quantityReceived: newReceivedQty },
         });
 
-        // Increase product variant stock
+        // Increase product variant stock and sync pricing if specified
         if (poItem.variantId) {
+          await tx.branchInventory.upsert({
+            where: {
+              branchId_productVariantId: {
+                branchId: po.branchId,
+                productVariantId: poItem.variantId,
+              },
+            },
+            create: {
+              branchId: po.branchId,
+              productVariantId: poItem.variantId,
+              quantity: Number(receivedItem.quantityReceived),
+            },
+            update: {
+              quantity: { increment: Number(receivedItem.quantityReceived) },
+            },
+          });
+
+          const variantUpdateData: Prisma.ProductVariantUpdateInput = {
+            stock: { increment: Number(receivedItem.quantityReceived) },
+          };
+
+          if (poItem.sellingPrice !== null && poItem.sellingPrice !== undefined) {
+            variantUpdateData.price = poItem.sellingPrice;
+          }
+          if (poItem.wholesalePrice !== null && poItem.wholesalePrice !== undefined) {
+            variantUpdateData.wholesalePrice = poItem.wholesalePrice;
+          }
+          if (poItem.unitCost !== null && poItem.unitCost !== undefined) {
+            variantUpdateData.buyingPrice = poItem.unitCost;
+          }
+
           await tx.productVariant.update({
             where: { id: poItem.variantId },
-            data: {
-              stock: { increment: Number(receivedItem.quantityReceived) },
-            },
+            data: variantUpdateData,
+          });
+        }
+
+        // Sync Product offer price (salePrice) if offerPrice is present on line item
+        if (poItem.offerPrice !== null && poItem.offerPrice !== undefined && poItem.productId) {
+          await tx.product.update({
+            where: { id: poItem.productId },
+            data: { salePrice: poItem.offerPrice },
           });
         }
       }
@@ -370,6 +705,157 @@ export class PurchaseOrderService {
     });
   }
 
+  async returnItems(id: string, dto: ReturnPurchaseOrderDto, staffId: string) {
+    const po = await this.findOne(id);
+
+    if (po.status === PurchaseOrderStatus.CANCELLED || po.status === PurchaseOrderStatus.DRAFT) {
+      throw new BadRequestException(`Cannot return items on a ${po.status} purchase order.`);
+    }
+
+    if (!dto.items || dto.items.length === 0) {
+      throw new BadRequestException('At least one item must be selected for return.');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      let totalReturnedValue = 0;
+      const returnNotes: string[] = [];
+
+      for (const retItem of dto.items) {
+        const poItem = po.items.find((i) => i.id === retItem.purchaseOrderItemId);
+        if (!poItem) {
+          throw new NotFoundException(
+            `Purchase order item "${retItem.purchaseOrderItemId}" not found in this order.`,
+          );
+        }
+
+        const maxAvailable = poItem.quantityReceived > 0 ? poItem.quantityReceived : poItem.quantityOrdered;
+        if (retItem.quantityReturned > maxAvailable) {
+          throw new BadRequestException(
+            `Cannot return ${retItem.quantityReturned} units of "${poItem.product?.name}". Max received/ordered is ${maxAvailable}.`,
+          );
+        }
+
+        const lineCost = Number(poItem.unitCost);
+        const itemReturnValue = retItem.quantityReturned * lineCost;
+        totalReturnedValue += itemReturnValue;
+
+        // Decrease stock on product variant if received
+        if (poItem.variantId) {
+          const currentVariant = await tx.productVariant.findUnique({
+            where: { id: poItem.variantId },
+            select: { stock: true },
+          });
+          const stockBefore = currentVariant?.stock ?? 0;
+          const stockAfter = Math.max(0, stockBefore - retItem.quantityReturned);
+
+          await tx.productVariant.update({
+            where: { id: poItem.variantId },
+            data: { stock: stockAfter },
+          });
+
+          // Create a StockAdjustment record for audit trace
+          const refNo = `SA-RET-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+          await tx.stockAdjustment.create({
+            data: {
+              referenceNo: refNo,
+              branchId: po.branchId,
+              productId: poItem.productId,
+              variantId: poItem.variantId,
+              type: StockAdjustmentType.DECREASE,
+              quantityChange: -retItem.quantityReturned,
+              stockBefore,
+              stockAfter,
+              reason: `Purchase Return: ${retItem.reason || 'Returned to supplier'} (PO: ${po.poNumber})`,
+              adjustedById: staffId,
+            },
+          });
+        }
+
+        // Adjust quantityReceived / quantityOrdered on item
+        await tx.purchaseOrderItem.update({
+          where: { id: poItem.id },
+          data: {
+            quantityOrdered: Math.max(0, poItem.quantityOrdered - retItem.quantityReturned),
+            quantityReceived: Math.max(0, poItem.quantityReceived - retItem.quantityReturned),
+            lineTotal: Math.max(0, Number(poItem.lineTotal) - itemReturnValue),
+          },
+        });
+
+        returnNotes.push(
+          `Returned ${retItem.quantityReturned}x ${poItem.product?.name} (৳${itemReturnValue}) [Reason: ${retItem.reason || 'N/A'}]`,
+        );
+      }
+
+      // Accounting Adjustments
+      const currentGrandTotal = Number(po.grandTotal);
+      const newGrandTotal = Math.max(0, currentGrandTotal - totalReturnedValue);
+      const currentAmountPaid = Number(po.amountPaid);
+      let newAmountPaid = currentAmountPaid;
+      let creditRefund = 0;
+
+      // If grand total becomes less than what was paid, credit difference to supplier advance balance
+      if (newGrandTotal < currentAmountPaid) {
+        creditRefund = currentAmountPaid - newGrandTotal;
+        newAmountPaid = newGrandTotal;
+
+        const currentSupplierAdvance = Number(po.supplier.advanceBalance || 0);
+        await tx.supplier.update({
+          where: { id: po.supplierId },
+          data: { advanceBalance: currentSupplierAdvance + creditRefund },
+        });
+      }
+
+      const newDueAmount = Math.max(0, newGrandTotal - newAmountPaid);
+      const dueReduction = Number(po.dueAmount) - newDueAmount;
+
+      if (dueReduction > 0) {
+        const currentSupplierDue = Number(po.supplier.totalDue || 0);
+        await tx.supplier.update({
+          where: { id: po.supplierId },
+          data: { totalDue: Math.max(0, currentSupplierDue - dueReduction) },
+        });
+      }
+
+      const updatedNotes = [
+        po.internalNotes,
+        `[RETURN ${new Date().toISOString()} by staff ${staffId}]: ${returnNotes.join('; ')} (Total Returned: ৳${totalReturnedValue}, Advance Credit: ৳${creditRefund})`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      return tx.purchaseOrder.update({
+        where: { id },
+        data: {
+          grandTotal: newGrandTotal,
+          subtotal: Math.max(0, Number(po.subtotal) - totalReturnedValue),
+          amountPaid: newAmountPaid,
+          dueAmount: newDueAmount,
+          internalNotes: updatedNotes,
+        },
+        include: {
+          items: {
+            include: {
+              product: true,
+              variant: true,
+            },
+          },
+          supplier: true,
+          branch: true,
+        },
+      });
+    });
+  }
+
+  async attachDocument(id: string, file: Express.Multer.File) {
+    const po = await this.findOne(id);
+    const documentUrl = (await resolveUploadedFile(file, 'purchase-documents')) || `/uploads/purchase-documents/${file.filename}`;
+
+    return this.prisma.purchaseOrder.update({
+      where: { id: po.id },
+      data: { documentUrl },
+    });
+  }
+
   async cancel(id: string) {
     const po = await this.findOne(id);
 
@@ -383,9 +869,9 @@ export class PurchaseOrderService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      // Revert the supplier's due amount that was added on creation
+      // Revert supplier due amount if ordered
       const dueAmount = Number(po.dueAmount);
-      if (dueAmount > 0) {
+      if (dueAmount > 0 && po.status !== PurchaseOrderStatus.DRAFT) {
         const supplier = await tx.supplier.findUnique({
           where: { id: po.supplierId },
         });

@@ -28,6 +28,7 @@ interface FilterBarProps {
   onSearchChange?: (value: string) => void;
   onFilterChange?: (key: string, value: unknown) => void;
   onReset?: () => void;
+  className?: string;
 }
 
 export function FilterBar({
@@ -36,6 +37,7 @@ export function FilterBar({
   onSearchChange,
   onFilterChange,
   onReset,
+  className,
 }: FilterBarProps) {
   const [searchValue, setSearchValue] = useState("");
   const [filterValues, setFilterValues] = useState<Record<string, unknown>>({});
@@ -61,7 +63,7 @@ export function FilterBar({
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm p-4 flex flex-wrap items-center gap-3">
+    <div className={cn("bg-white rounded-xl shadow-sm p-4 flex flex-wrap items-center gap-3", className)}>
       {/* Search Input */}
       <div className="relative flex-1 min-w-[200px] max-w-sm">
         <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none text-slate-400">

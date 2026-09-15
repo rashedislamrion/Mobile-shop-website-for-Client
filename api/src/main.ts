@@ -23,8 +23,44 @@ async function bootstrap() {
   const uploadDir = process.env.UPLOAD_ROOT || join(process.cwd(), 'uploads');
   app.useStaticAssets(uploadDir, { prefix: '/uploads/' });
 
+  // Parse comma-separated ALLOWED_ORIGINS from environment variable
+  const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((o) => o.trim().replace(/\/$/, ''))
+    .filter(Boolean);
+
+  const frontendUrl = (process.env.FRONTEND_URL || '').trim().replace(/\/$/, '');
+
   app.enableCors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: (origin, callback) => {
+      // Allow server-to-server, curl, mobile apps, or same-origin requests without Origin header
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      // Allow local development (localhost and 127.0.0.1 on any port)
+      if (/^https?:\/\/localhost(:\d+)?$/.test(origin) || /^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) {
+        return callback(null, true);
+      }
+
+      // Allow any Vercel production and preview deployment domain
+      if (/^https:\/\/[a-zA-Z0-9-]+\.vercel\.app$/.test(origin) || /^https:\/\/.*\.vercel\.app$/.test(origin)) {
+        return callback(null, true);
+      }
+
+      // Allow explicit origins in ALLOWED_ORIGINS
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      // Allow FRONTEND_URL if specified
+      if (frontendUrl && origin === frontendUrl) {
+        return callback(null, true);
+      }
+
+      // Permissive fallback for demo environments
+      callback(null, true);
+    },
     credentials: true,
   });
 
@@ -39,4 +75,3 @@ async function bootstrap() {
   await app.listen(process.env.PORT || 4000);
 }
 bootstrap();
-

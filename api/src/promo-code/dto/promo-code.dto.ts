@@ -43,6 +43,11 @@ export class CreatePromoCodeDto {
   @Type(() => Number)
   perCustomerLimit?: number;
 
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  singleUserLimit?: number;
+
   @IsEnum(PromoApplicableTo)
   @IsOptional()
   applicableTo?: PromoApplicableTo = PromoApplicableTo.ALL;
@@ -103,6 +108,11 @@ export class UpdatePromoCodeDto {
   @IsOptional()
   @Type(() => Number)
   perCustomerLimit?: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  singleUserLimit?: number;
 
   @IsEnum(PromoApplicableTo)
   @IsOptional()

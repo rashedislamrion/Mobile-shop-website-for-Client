@@ -9,7 +9,11 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { RoleService } from './role.service';
-import { CreateRoleDto, UpdateRolePermissionsDto } from './dto/role.dto';
+import {
+  CreateRoleDto,
+  UpdateRolePermissionsDto,
+  UpdateRoleBranchPermissionsDto,
+} from './dto/role.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
@@ -38,6 +42,12 @@ export class RoleController {
     return this.roleService.getRolePermissions(id);
   }
 
+  @Get(':id/branch-permissions')
+  @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.READ })
+  getRoleBranchPermissions(@Param('id') id: string) {
+    return this.roleService.getRoleBranchPermissions(id);
+  }
+
   @Post()
   @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.CREATE })
   create(@Body() createRoleDto: CreateRoleDto) {
@@ -53,9 +63,22 @@ export class RoleController {
     return this.roleService.updateRolePermissions(id, updateRolePermissionsDto);
   }
 
+  @Patch(':id/branch-permissions')
+  @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.UPDATE })
+  updateRoleBranchPermissions(
+    @Param('id') id: string,
+    @Body() updateRoleBranchPermissionsDto: UpdateRoleBranchPermissionsDto,
+  ) {
+    return this.roleService.updateRoleBranchPermissions(
+      id,
+      updateRoleBranchPermissionsDto,
+    );
+  }
+
   @Delete(':id')
   @RequirePermission({ module: ModuleName.HRM, action: PermissionAction.DELETE })
   remove(@Param('id') id: string) {
     return this.roleService.remove(id);
   }
 }
+

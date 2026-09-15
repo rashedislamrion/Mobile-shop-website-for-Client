@@ -47,7 +47,7 @@ export const mockRoles: Role[] = [
     employeeCount: 15,
     permissions: ALL_MODULES.map(module => ({
       module,
-      actions: ['Sales', 'Orders', 'Customers'].includes(module) ? ['Create', 'Read', 'Update'] : ['Read']
+      actions: (['Sales', 'Orders', 'Customers'].includes(module) ? ['Create', 'Read', 'Update'] : ['Read']) as Action[]
     })).filter(p => !['HRM', 'Business Settings', 'CMS', 'Report'].includes(p.module))
   },
   {
@@ -58,7 +58,7 @@ export const mockRoles: Role[] = [
     employeeCount: 2,
     permissions: ALL_MODULES.map(module => ({
       module,
-      actions: ['Purchase', 'Suppliers', 'Products', 'Category', 'Stock Adjustments'].includes(module) ? [...ALL_ACTIONS] : ['Read']
+      actions: (['Purchase', 'Suppliers', 'Products', 'Category', 'Stock Adjustments'].includes(module) ? [...ALL_ACTIONS] : ['Read']) as Action[]
     })).filter(p => !['HRM', 'Business Settings', 'Sales'].includes(p.module))
   },
   {
@@ -69,7 +69,7 @@ export const mockRoles: Role[] = [
     employeeCount: 4,
     permissions: ALL_MODULES.map(module => ({
       module,
-      actions: ['Products', 'Category'].includes(module) ? ['Create', 'Read', 'Update'] : ['Read']
+      actions: (['Products', 'Category'].includes(module) ? ['Create', 'Read', 'Update'] : ['Read']) as Action[]
     })).filter(p => !['HRM', 'Sales', 'Purchase'].includes(p.module))
   },
   {
@@ -80,7 +80,7 @@ export const mockRoles: Role[] = [
     employeeCount: 8,
     permissions: ALL_MODULES.map(module => ({
       module,
-      actions: ['Customers', 'Orders', 'Help Requests', 'Help Notes'].includes(module) ? ['Read', 'Update'] : []
+      actions: (['Customers', 'Orders', 'Help Requests', 'Help Notes'].includes(module) ? ['Read', 'Update'] : []) as Action[]
     }))
   },
   {
@@ -91,7 +91,7 @@ export const mockRoles: Role[] = [
     employeeCount: 6,
     permissions: ALL_MODULES.map(module => ({
       module,
-      actions: ['Orders'].includes(module) ? ['Read', 'Update'] : []
+      actions: (['Orders'].includes(module) ? ['Read', 'Update'] : []) as Action[]
     }))
   },
   {
@@ -102,7 +102,7 @@ export const mockRoles: Role[] = [
     employeeCount: 1,
     permissions: ALL_MODULES.map(module => ({
       module,
-      actions: ['CMS', 'Blogs', 'Promotional Banner', 'Ads'].includes(module) ? [...ALL_ACTIONS] : ['Read']
+      actions: (['CMS', 'Blogs', 'Promotional Banner', 'Ads'].includes(module) ? [...ALL_ACTIONS] : ['Read']) as Action[]
     })).filter(p => !['HRM', 'Sales', 'Orders', 'Business Settings'].includes(p.module))
   }
 ];

@@ -166,9 +166,11 @@ export default function StockAdjustmentsPage() {
         label: "Delete", 
         icon: <Trash2 className="w-4 h-4 text-red-500" />, 
         variant: "destructive", 
-        disabled: isLocked,
-        disabledTooltip: "Adjustment locked after 24h",
         onClick: () => {
+          if (isLocked) {
+            toast.error("Adjustment locked after 24h");
+            return;
+          }
           toast.success("Adjustment record archived");
           setData(prev => prev.filter(a => a.id !== row.id));
         }

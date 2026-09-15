@@ -26,11 +26,25 @@ let JwtAuthGuard = class JwtAuthGuard extends (0, passport_1.AuthGuard)('jwt-acc
             context.getClass(),
         ]);
         if (isPublic) {
+            const request = context.switchToHttp().getRequest();
+            const authHeader = request.headers?.['authorization'];
+            if (authHeader) {
+                return super.canActivate(context);
+            }
             return true;
         }
         return super.canActivate(context);
     }
-    handleRequest(err, user, info) {
+    handleRequest(err, user, info, context) {
+        const isPublic = context
+            ? this.reflector.getAllAndOverride(public_decorator_1.IS_PUBLIC_KEY, [
+                context.getHandler(),
+                context.getClass(),
+            ])
+            : false;
+        if (isPublic) {
+            return user || null;
+        }
         if (err || !user) {
             throw err || new common_1.UnauthorizedException('Unauthorized access');
         }

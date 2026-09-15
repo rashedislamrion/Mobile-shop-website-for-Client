@@ -20,8 +20,30 @@ async function bootstrap() {
     app.use((0, cookie_parser_1.default)());
     const uploadDir = process.env.UPLOAD_ROOT || (0, path_1.join)(process.cwd(), 'uploads');
     app.useStaticAssets(uploadDir, { prefix: '/uploads/' });
+    const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+        .split(',')
+        .map((o) => o.trim().replace(/\/$/, ''))
+        .filter(Boolean);
+    const frontendUrl = (process.env.FRONTEND_URL || '').trim().replace(/\/$/, '');
     app.enableCors({
-        origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+        origin: (origin, callback) => {
+            if (!origin) {
+                return callback(null, true);
+            }
+            if (/^https?:\/\/localhost(:\d+)?$/.test(origin) || /^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)) {
+                return callback(null, true);
+            }
+            if (/^https:\/\/[a-zA-Z0-9-]+\.vercel\.app$/.test(origin) || /^https:\/\/.*\.vercel\.app$/.test(origin)) {
+                return callback(null, true);
+            }
+            if (allowedOrigins.includes(origin)) {
+                return callback(null, true);
+            }
+            if (frontendUrl && origin === frontendUrl) {
+                return callback(null, true);
+            }
+            callback(null, true);
+        },
         credentials: true,
     });
     app.useGlobalPipes(new common_1.ValidationPipe({

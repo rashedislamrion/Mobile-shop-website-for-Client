@@ -19,11 +19,13 @@ export type FilterConfig =
 export type TableAction = {
   label: string;
   icon?: React.ReactNode;
-  onClick: (row: unknown) => void;
+  onClick: (row: any) => void;
   variant?: "default" | "destructive";
+  disabled?: boolean;
 };
 
 export type StatusVariant =
+  | "default"
   | "success"   // green (paid, delivered, completed)
   | "warning"   // amber (pending, processing)
   | "danger"    // red (cancelled, failed, due)

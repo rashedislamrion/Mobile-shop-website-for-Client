@@ -119,6 +119,13 @@ const defaultPageContext: PageContextType = {
   breadcrumbs: [],
   setBreadcrumbs: () => {},
   setPageInfo: () => {},
+  selectedBranchId: "",
+  setSelectedBranchId: () => {},
+  selectedBranchName: "All Branches",
+  setSelectedBranchName: () => {},
+  branches: [],
+  setBranches: () => {},
+  selectBranch: () => {},
 };
 
 export function useAdminPage() {

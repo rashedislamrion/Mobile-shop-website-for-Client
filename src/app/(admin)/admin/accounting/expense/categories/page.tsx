@@ -5,7 +5,7 @@ import { useAdminPage } from "@/contexts/AdminPageContext";
 import { DataTable, ActionDropdown } from "@/components/admin/DataTable";
 import { TableAction } from "@/types/table";
 import { ColumnDef } from "@tanstack/react-table";
-import { Plus, Edit, Trash2, Tag } from "lucide-react";
+import { Plus, Edit, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -21,7 +21,7 @@ interface ExpenseCategoryRecord {
   name: string;
   icon?: string | null;
   monthlyBudget?: number | string | null;
-  thisMonthSpend: number;
+  thisMonthSpend?: number;
   _count?: { expenses: number };
 }
 
@@ -29,20 +29,16 @@ export default function ExpenseCategoriesPage() {
   const { setTitle, setBadge, setDateFilter } = useAdminPage();
   const [data, setData] = useState<ExpenseCategoryRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  
+
   // Dialog State
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingCategory, setEditingCategory] = useState<ExpenseCategoryRecord | null>(null);
-  const [formData, setFormData] = useState({
-    name: "",
-    icon: "Tag",
-    monthlyBudget: 0,
-  });
+  const [name, setName] = useState("");
 
   useEffect(() => {
     setTitle("Expense Categories");
     setBadge("Accounting");
-    setDateFilter(""); 
+    setDateFilter("");
   }, [setTitle, setBadge, setDateFilter]);
 
   const loadData = useCallback(async () => {
@@ -64,24 +60,16 @@ export default function ExpenseCategoriesPage() {
   const handleOpenDialog = (cat?: ExpenseCategoryRecord) => {
     if (cat) {
       setEditingCategory(cat);
-      setFormData({
-        name: cat.name,
-        icon: cat.icon || "Tag",
-        monthlyBudget: Number(cat.monthlyBudget || 0),
-      });
+      setName(cat.name);
     } else {
       setEditingCategory(null);
-      setFormData({
-        name: "",
-        icon: "Tag",
-        monthlyBudget: 0,
-      });
+      setName("");
     }
     setDialogOpen(true);
   };
 
   const handleSave = async () => {
-    if (!formData.name.trim()) {
+    if (!name.trim()) {
       toast.error("Please enter a category name");
       return;
     }
@@ -89,16 +77,12 @@ export default function ExpenseCategoriesPage() {
     try {
       if (editingCategory) {
         await apiPatch(`/expense-categories/${editingCategory.id}`, {
-          name: formData.name.trim(),
-          icon: formData.icon,
-          monthlyBudget: Number(formData.monthlyBudget || 0),
+          name: name.trim(),
         });
         toast.success("Category updated successfully");
       } else {
         await apiPost("/expense-categories", {
-          name: formData.name.trim(),
-          icon: formData.icon,
-          monthlyBudget: Number(formData.monthlyBudget || 0),
+          name: name.trim(),
         });
         toast.success("Category created successfully");
       }
@@ -128,7 +112,7 @@ export default function ExpenseCategoriesPage() {
     },
     {
       label: "Delete",
-      icon: <Trash2 className="w-4 h-4 text-red-500" />,
+      icon: <Trash2 className="w-4 h-4 text-rose-500" />,
       variant: "destructive",
       onClick: (row) => handleDelete(row.id),
     },
@@ -136,58 +120,26 @@ export default function ExpenseCategoriesPage() {
 
   const columns: ColumnDef<ExpenseCategoryRecord>[] = [
     {
-      accessorKey: "name",
-      header: "Category Name",
+      id: "sl",
+      header: "SL",
       cell: ({ row }) => (
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-sm">
-            <Tag className="w-4 h-4" />
-          </div>
-          <div>
-            <p className="font-semibold text-slate-800 text-sm">{row.original.name}</p>
-          </div>
-        </div>
+        <span className="font-semibold text-slate-500 text-xs">
+          {row.index + 1}
+        </span>
       ),
     },
     {
-      accessorKey: "monthlyBudget",
-      header: "Monthly Budget",
-      cell: ({ row }) => {
-        const budget = Number(row.original.monthlyBudget || 0);
-        if (budget === 0) return <span className="text-slate-400 italic text-xs">No limit</span>;
-        return <span className="font-medium text-slate-700 text-sm">৳{budget.toLocaleString()}</span>;
-      },
-    },
-    {
-      accessorKey: "thisMonthSpend",
-      header: "This Month Spend",
-      cell: ({ row }) => {
-        const spend = Number(row.original.thisMonthSpend || 0);
-        const budget = Number(row.original.monthlyBudget || 0);
-        const isOver = budget > 0 && spend > budget;
-
-        return (
-          <div>
-            <span className={`font-bold text-sm ${isOver ? "text-red-600" : "text-slate-800"}`}>
-              ৳{spend.toLocaleString()}
-            </span>
-            {isOver && <span className="text-xs text-red-500 block">Over budget!</span>}
-          </div>
-        );
-      },
-    },
-    {
-      accessorKey: "usageCount",
-      header: "Total Expenses",
+      accessorKey: "name",
+      header: "NAME",
       cell: ({ row }) => (
-        <span className="text-slate-600 text-sm font-medium">
-          {row.original._count?.expenses || 0} entries
+        <span className="font-bold text-slate-800 text-sm">
+          {row.original.name}
         </span>
       ),
     },
     {
       id: "actions",
-      header: "Action",
+      header: "ACTION",
       cell: ({ row }) => (
         <div className="flex justify-end">
           <ActionDropdown actions={createActions()} rowData={row.original} />
@@ -198,48 +150,39 @@ export default function ExpenseCategoriesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200">
+      <div className="flex justify-between items-center bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-          <h2 className="text-lg font-bold text-slate-800">Expense Categories</h2>
-          <p className="text-xs text-slate-500">Track and categorize company expenditures & overheads</p>
+          <h2 className="text-lg font-bold text-slate-900">Expense Categories</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Classification headers for operating costs and bills</p>
         </div>
         <button
           onClick={() => handleOpenDialog()}
-          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs transition-colors shadow-sm"
         >
-          <Plus className="w-4 h-4" /> Add Category
+          <Plus className="w-4 h-4" /> Create New
         </button>
       </div>
 
-      <DataTable 
-        columns={columns} 
-        data={data} 
-        pageSize={10}
-      />
+      <DataTable columns={columns} data={data} pageSize={10} />
 
-      {/* Add / Edit Dialog */}
+      {/* Create / Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[420px] rounded-2xl p-6">
           <DialogHeader>
-            <DialogTitle>{editingCategory ? "Edit Category" : "Add New Category"}</DialogTitle>
+            <DialogTitle className="text-base font-bold text-slate-900">
+              {editingCategory ? "Edit Expense Category" : "Create Expense Category"}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-3">
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1.5">Category Name *</label>
+              <label className="text-xs font-bold text-slate-700 block mb-1">
+                Name *
+              </label>
               <Input
-                placeholder="e.g. Office Utilities, Equipment"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1.5">Monthly Budget Limit (৳)</label>
-              <Input
-                type="number"
-                placeholder="0.00 (Optional)"
-                value={formData.monthlyBudget || ""}
-                onChange={(e) => setFormData({ ...formData, monthlyBudget: Number(e.target.value) })}
+                placeholder="e.g. Office Rent, Utilities, Courier"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="h-10 text-xs font-medium"
               />
             </div>
 
@@ -247,16 +190,16 @@ export default function ExpenseCategoriesPage() {
               <button
                 type="button"
                 onClick={() => setDialogOpen(false)}
-                className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium hover:bg-slate-50 text-slate-700"
+                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-medium hover:bg-slate-50 text-slate-700"
               >
-                Cancel
+                Close
               </button>
               <button
                 type="button"
                 onClick={handleSave}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium"
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm"
               >
-                {editingCategory ? "Save Changes" : "Create Category"}
+                Submit
               </button>
             </div>
           </div>

@@ -8,7 +8,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { ServiceJobService } from './service-job.service';
-import { CreateServiceJobDto, AssignTechnicianDto } from './dto/create-service-job.dto';
+import { CreateServiceJobDto, AssignTechnicianDto, CreateRepairJobDto } from './dto/create-service-job.dto';
 import { UpdateServiceJobStatusDto } from './dto/update-service-job-status.dto';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -18,6 +18,12 @@ import { ModuleName, PermissionAction, ServiceJobStatus } from '@prisma/client';
 @Controller('service-jobs')
 export class ServiceJobController {
   constructor(private readonly serviceJobService: ServiceJobService) {}
+
+  @RequirePermission({ module: ModuleName.SALES, action: PermissionAction.READ })
+  @Get('next-invoice-number')
+  getNextInvoiceNo() {
+    return this.serviceJobService.getNextInvoiceNo();
+  }
 
   @RequirePermission({ module: ModuleName.SALES, action: PermissionAction.READ })
   @Get()
@@ -44,16 +50,22 @@ export class ServiceJobController {
     return this.serviceJobService.findMy(user.sub);
   }
 
-  @RequirePermission({ module: ModuleName.SALES, action: PermissionAction.READ })
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.serviceJobService.findOne(id);
+  @RequirePermission({ module: ModuleName.SALES, action: PermissionAction.CREATE })
+  @Post('repair')
+  createRepairJob(@Body() dto: CreateRepairJobDto, @CurrentUser() user: JwtPayload) {
+    return this.serviceJobService.createRepairJob(dto, user);
   }
 
   @RequirePermission({ module: ModuleName.SALES, action: PermissionAction.CREATE })
   @Post()
   create(@Body() dto: CreateServiceJobDto) {
     return this.serviceJobService.create(dto);
+  }
+
+  @RequirePermission({ module: ModuleName.SALES, action: PermissionAction.READ })
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.serviceJobService.findOne(id);
   }
 
   @RequirePermission({ module: ModuleName.SALES, action: PermissionAction.UPDATE })

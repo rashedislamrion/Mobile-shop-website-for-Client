@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { OrderStatus, PayrollStatus, ExpenseStatus, Prisma, PaymentStatus, WalletTxnType } from '@prisma/client';
+import { OrderStatus, PayrollStatus, ExpenseStatus, Prisma, PaymentStatus, WalletTxnType, SaleType, StaffStatus } from '@prisma/client';
 
 @Injectable()
 export class ReportService {
@@ -206,6 +206,7 @@ export class ReportService {
       phone: string;
       email: string;
       branch: string;
+      source: string;
       totalOrders: number;
       totalSpent: number;
       totalDue: number;
@@ -214,6 +215,7 @@ export class ReportService {
 
     for (const ord of orders) {
       const cId = ord.customerId || `customer-${ord.id}`;
+      const derivedSource = ord.saleType === 'POS' ? 'POS' : (!ord.customerId ? 'Walk-In' : 'Online');
       if (!customerMap.has(cId)) {
         customerMap.set(cId, {
           id: cId,
@@ -222,6 +224,7 @@ export class ReportService {
           phone: ord.customer?.phone || 'N/A',
           email: ord.customer?.email || 'N/A',
           branch: ord.branch?.name || 'Global',
+          source: derivedSource,
           totalOrders: 0,
           totalSpent: 0,
           totalDue: 0,
@@ -462,6 +465,7 @@ export class ReportService {
         id: s.id,
         supplierId: s.id,
         supplierName: s.name,
+        companyName: s.companyName || s.name,
         name: s.name,
         contactPerson: s.contactPerson,
         phone: s.phone,
@@ -500,6 +504,1354 @@ export class ReportService {
       },
       data,
       supplierDues: data,
+    };
+  }
+
+  // ============================= WEBSITE SALES =============================
+  async getWebsiteSalesReport(query?: {
+    branch?: string;
+    status?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const branchId = await this.resolveBranchId(query?.branch);
+    const where: Prisma.OrderWhereInput = {
+      NOT: {
+        saleType: { in: [SaleType.POS, SaleType.COURIER, SaleType.DIAGNOSING] },
+      },
+    };
+
+    if (branchId) where.branchId = branchId;
+    if (query?.status && query.status !== 'ALL') {
+      where.status = query.status as any;
+    }
+    if (query?.dateFrom || query?.dateTo) {
+      where.createdAt = {};
+      if (query.dateFrom) where.createdAt.gte = new Date(query.dateFrom);
+      if (query.dateTo) {
+        const to = new Date(query.dateTo);
+        to.setHours(23, 59, 59, 999);
+        where.createdAt.lte = to;
+      }
+    }
+    if (query?.search?.trim()) {
+      const q = query.search.trim();
+      where.OR = [
+        { orderCode: { contains: q, mode: 'insensitive' } },
+        { customer: { name: { contains: q, mode: 'insensitive' } } },
+        { customer: { phone: { contains: q, mode: 'insensitive' } } },
+      ];
+    }
+
+    const [allMatchingOrders, orders] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        select: {
+          totalAmount: true,
+          status: true,
+        },
+      }),
+      this.prisma.order.findMany({
+        where,
+        include: {
+          customer: { select: { id: true, name: true, phone: true, email: true } },
+          branch: { select: { id: true, name: true } },
+          items: {
+            include: {
+              product: { select: { id: true, name: true, code: true } },
+              variant: { select: { id: true, color: true, quality: true, sku: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    const completedTotal = allMatchingOrders
+      .filter((o) => [OrderStatus.DELIVERED, OrderStatus.COMPLETED].includes(o.status as any))
+      .reduce((sum, o) => sum + Number(o.totalAmount), 0);
+
+    const pendingTotal = allMatchingOrders
+      .filter((o) => [OrderStatus.PENDING, OrderStatus.CONFIRMED, OrderStatus.PARCEL_BOOKED, OrderStatus.DIAGNOSING].includes(o.status as any))
+      .reduce((sum, o) => sum + Number(o.totalAmount), 0);
+
+    const netTotal = allMatchingOrders
+      .filter((o) => ![OrderStatus.CANCELLED, OrderStatus.RETURNED].includes(o.status as any))
+      .reduce((sum, o) => sum + Number(o.totalAmount), 0);
+
+    const data = orders.map((o) => {
+      const itemsSummary = o.items.map((i) => `${i.productNameSnapshot || i.product?.name || 'Product'} (x${i.quantity})`).join(', ');
+      return {
+        id: o.id,
+        orderCode: o.orderCode || `#EM${o.id.slice(-6).toUpperCase()}`,
+        orderDate: o.createdAt,
+        createdAt: o.createdAt,
+        branch: o.branch?.name || 'Main Branch',
+        customer: {
+          id: o.customer?.id || '',
+          name: o.customer?.name || 'Online Customer',
+          phone: o.customer?.phone || 'N/A',
+          email: o.customer?.email || 'N/A',
+        },
+        items: o.items.map((i) => ({
+          id: i.id,
+          productName: i.productNameSnapshot || i.product?.name || 'Product',
+          variant: i.variant ? `${i.variant.color || ''} ${i.variant.quality || ''}`.trim() || i.variant.sku : 'Standard',
+          quantity: i.quantity,
+          unitPrice: Number(i.unitPrice),
+          lineTotal: Number(i.lineTotal),
+        })),
+        itemsSummary: itemsSummary || 'No items',
+        totalAmount: Number(o.totalAmount),
+        paidAmount: Number(o.paidAmount),
+        dueAmount: Number(o.dueAmount),
+        status: o.status,
+        paymentStatus: o.paymentStatus,
+        paymentMethod: o.paymentMethod || 'Online',
+      };
+    });
+
+    return {
+      summary: {
+        totalOrders: allMatchingOrders.length,
+        completedTotal,
+        pendingTotal,
+        netTotal,
+        totalSales: netTotal,
+      },
+      data,
+    };
+  }
+
+  // ============================= POS SALES =============================
+  async getPosSalesReport(query?: {
+    branch?: string;
+    status?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    search?: string;
+    staffId?: string;
+  }) {
+    const branchId = await this.resolveBranchId(query?.branch);
+    const where: Prisma.OrderWhereInput = {
+      saleType: SaleType.POS,
+    };
+
+    if (branchId) where.branchId = branchId;
+    if (query?.status && query.status !== 'ALL') {
+      where.status = query.status as any;
+    }
+    if (query?.staffId) {
+      where.staffId = query.staffId;
+    }
+    if (query?.dateFrom || query?.dateTo) {
+      where.createdAt = {};
+      if (query.dateFrom) where.createdAt.gte = new Date(query.dateFrom);
+      if (query.dateTo) {
+        const to = new Date(query.dateTo);
+        to.setHours(23, 59, 59, 999);
+        where.createdAt.lte = to;
+      }
+    }
+    if (query?.search?.trim()) {
+      const q = query.search.trim();
+      where.OR = [
+        { orderCode: { contains: q, mode: 'insensitive' } },
+        { customer: { name: { contains: q, mode: 'insensitive' } } },
+        { customer: { phone: { contains: q, mode: 'insensitive' } } },
+      ];
+    }
+
+    const dateFilter: { gte?: Date; lte?: Date } = {};
+    if (query?.dateFrom) dateFilter.gte = new Date(query.dateFrom);
+    if (query?.dateTo) {
+      const to = new Date(query.dateTo);
+      to.setHours(23, 59, 59, 999);
+      dateFilter.lte = to;
+    }
+    const hasDateFilter = Boolean(query?.dateFrom || query?.dateTo);
+
+    const [posOrders, courierOrders, diagnosingOrders, returnedOrders] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        include: {
+          customer: { select: { id: true, name: true, phone: true } },
+          branch: { select: { id: true, name: true } },
+          staff: { select: { id: true, name: true } },
+          items: {
+            include: {
+              product: { select: { name: true } },
+              variant: { select: { color: true, quality: true, sku: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.order.findMany({
+        where: {
+          saleType: SaleType.COURIER,
+          ...(branchId ? { branchId } : {}),
+          ...(hasDateFilter ? { createdAt: dateFilter } : {}),
+        },
+        select: { totalAmount: true },
+      }),
+      this.prisma.order.findMany({
+        where: {
+          saleType: SaleType.DIAGNOSING,
+          ...(branchId ? { branchId } : {}),
+          ...(hasDateFilter ? { createdAt: dateFilter } : {}),
+        },
+        select: { totalAmount: true },
+      }),
+      this.prisma.order.findMany({
+        where: {
+          status: OrderStatus.RETURNED,
+          ...(branchId ? { branchId } : {}),
+          ...(hasDateFilter ? { createdAt: dateFilter } : {}),
+        },
+        select: { totalAmount: true },
+      }),
+    ]);
+
+    const totalSales = posOrders.reduce((sum, o) => sum + Number(o.totalAmount), 0);
+    const totalDiscount = posOrders.reduce((sum, o) => sum + Number(o.discountAmount), 0);
+    const netSales = Math.max(0, totalSales - totalDiscount);
+    const totalUnpaid = posOrders.reduce((sum, o) => sum + Number(o.dueAmount), 0);
+    const courierSales = courierOrders.reduce((sum, o) => sum + Number(o.totalAmount), 0);
+    const diagnosingTotal = diagnosingOrders.reduce((sum, o) => sum + Number(o.totalAmount), 0);
+    const returnedTotal = returnedOrders.reduce((sum, o) => sum + Number(o.totalAmount), 0);
+
+    const data = posOrders.map((o) => {
+      const itemsSummary = o.items.map((i) => `${i.productNameSnapshot || i.product?.name || 'Item'} (x${i.quantity})`).join(', ');
+      const totalQty = o.items.reduce((sum, i) => sum + i.quantity, 0);
+      return {
+        id: o.id,
+        orderCode: o.orderCode || `#POS-${o.id.slice(-6).toUpperCase()}`,
+        createdAt: o.createdAt,
+        branch: o.branch?.name || 'Counter',
+        customer: {
+          id: o.customer?.id || '',
+          name: o.customer?.name || 'Walk-in Customer',
+          phone: o.customer?.phone || 'N/A',
+        },
+        itemsSummary: itemsSummary || 'Standard Sale',
+        totalQty,
+        subTotal: Number(o.subtotal || o.totalAmount),
+        discountAmount: Number(o.discountAmount || 0),
+        totalAmount: Number(o.totalAmount),
+        paidAmount: Number(o.paidAmount),
+        dueAmount: Number(o.dueAmount),
+        paymentStatus: o.paymentStatus,
+        payments: o.paymentMethod || (Number(o.dueAmount) > 0 ? 'PARTIAL' : 'CASH'),
+        staff: o.staff?.name || 'Counter Staff',
+      };
+    });
+
+    return {
+      summary: {
+        totalSales,
+        netSales,
+        totalUnpaid,
+        courierSales,
+        diagnosingTotal,
+        returnedTotal,
+      },
+      data,
+    };
+  }
+
+  // ============================= SERVICE SALES =============================
+  async getServiceSalesReport(query?: {
+    branch?: string;
+    status?: string;
+    technicianId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    search?: string;
+  }) {
+    const branchId = await this.resolveBranchId(query?.branch);
+    const where: Prisma.ServiceJobWhereInput = {};
+
+    if (branchId) {
+      where.order = { branchId };
+    }
+    if (query?.technicianId && query.technicianId !== 'ALL') {
+      where.technicianId = query.technicianId;
+    }
+    if (query?.status && query.status !== 'ALL') {
+      where.status = query.status as any;
+    }
+    if (query?.dateFrom || query?.dateTo) {
+      where.createdAt = {};
+      if (query.dateFrom) where.createdAt.gte = new Date(query.dateFrom);
+      if (query.dateTo) {
+        const to = new Date(query.dateTo);
+        to.setHours(23, 59, 59, 999);
+        where.createdAt.lte = to;
+      }
+    }
+    if (query?.search?.trim()) {
+      const q = query.search.trim();
+      where.OR = [
+        { device: { contains: q, mode: 'insensitive' } },
+        { issueDescription: { contains: q, mode: 'insensitive' } },
+        { order: { orderCode: { contains: q, mode: 'insensitive' } } },
+        { order: { customer: { name: { contains: q, mode: 'insensitive' } } } },
+        { order: { customer: { phone: { contains: q, mode: 'insensitive' } } } },
+      ];
+    }
+
+    const jobs = await this.prisma.serviceJob.findMany({
+      where,
+      include: {
+        technician: { select: { id: true, name: true, commissionRate: true } },
+        order: {
+          include: {
+            customer: { select: { id: true, name: true, phone: true } },
+            branch: { select: { id: true, name: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const totalService = jobs.reduce((sum, j) => sum + Number(j.serviceCharge), 0);
+    const totalPaid = jobs.reduce((sum, j) => sum + Number(j.order?.paidAmount || j.serviceCharge), 0);
+    const totalUnpaid = jobs.reduce((sum, j) => sum + Number(j.order?.dueAmount || 0), 0);
+    const totalCommission = jobs.reduce((sum, j) => {
+      const commRate = Number(j.technician?.commissionRate || 0);
+      return sum + (Number(j.serviceCharge) * (commRate / 100));
+    }, 0);
+    const netServiceRevenue = Math.max(0, totalService - totalCommission);
+    const diagnosing = jobs.filter((j) => ['PENDING', 'IN_PROGRESS', 'DIAGNOSING'].includes(j.status as string)).length;
+    const inCourier = jobs.filter((j) => j.order?.saleType === SaleType.COURIER).length;
+
+    const data = jobs.map((j) => {
+      const commRate = Number(j.technician?.commissionRate || 0);
+      const commAmount = Number(j.serviceCharge) * (commRate / 100);
+      return {
+        id: j.id,
+        orderId: j.orderId,
+        jobCode: j.order?.orderCode || `#SRV-${j.id.slice(-6).toUpperCase()}`,
+        createdAt: j.createdAt,
+        branch: j.order?.branch?.name || 'Service Center',
+        customer: {
+          id: j.order?.customer?.id || '',
+          name: j.order?.customer?.name || 'Walk-in Client',
+          phone: j.order?.customer?.phone || 'N/A',
+        },
+        device: j.device,
+        issueDescription: j.issueDescription,
+        serviceItem: `${j.device} (${j.issueDescription || 'Repair'})`,
+        serviceFee: Number(j.serviceCharge),
+        status: j.status,
+        technician: {
+          id: j.technician?.id || '',
+          name: j.technician?.name || 'Unassigned',
+          commissionRate: commRate,
+          commissionAmount: commAmount,
+        },
+      };
+    });
+
+    return {
+      summary: {
+        totalService,
+        totalPaid,
+        totalUnpaid,
+        netServiceRevenue,
+        diagnosing,
+        inCourier,
+      },
+      data,
+    };
+  }
+
+  // ============================= FIX PASS 21: GLOBAL SERVICE REPORT =============================
+  async getGlobalServiceReport(query?: {
+    branch?: string;
+    technicianId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    search?: string;
+  }) {
+    const where: Prisma.ServiceJobWhereInput = {};
+
+    if (query?.branch && query.branch !== 'all' && query.branch !== 'ALL') {
+      where.OR = [
+        { order: { branchId: query.branch } },
+        { technician: { branchId: query.branch } },
+      ];
+    }
+    if (query?.technicianId && query.technicianId !== 'all' && query.technicianId !== 'ALL') {
+      where.technicianId = query.technicianId;
+    }
+    if (query?.dateFrom || query?.dateTo) {
+      where.createdAt = {};
+      if (query.dateFrom) where.createdAt.gte = new Date(query.dateFrom);
+      if (query.dateTo) {
+        const to = new Date(query.dateTo);
+        to.setHours(23, 59, 59, 999);
+        where.createdAt.lte = to;
+      }
+    }
+    if (query?.search?.trim()) {
+      const q = query.search.trim();
+      where.OR = [
+        { invoiceNo: { contains: q, mode: 'insensitive' } },
+        { customerName: { contains: q, mode: 'insensitive' } },
+        { customerPhone: { contains: q, mode: 'insensitive' } },
+        { technician: { name: { contains: q, mode: 'insensitive' } } },
+        { device: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
+    const [jobs, allTechnicians] = await Promise.all([
+      this.prisma.serviceJob.findMany({
+        where,
+        include: {
+          technician: { select: { id: true, name: true, phone: true, profitSharePercentage: true, commissionRate: true, branchId: true } },
+          customer: { select: { id: true, name: true, phone: true } },
+          materials: { include: { supplier: true, product: true } },
+          order: {
+            include: {
+              branch: { select: { id: true, name: true } },
+              payments: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.staff.findMany({
+        where: { isTechnician: true, status: StaffStatus.ACTIVE },
+        select: { id: true, name: true, phone: true, profitSharePercentage: true, commissionRate: true, branch: { select: { id: true, name: true } } },
+      }),
+    ]);
+
+    // Summary Calculations
+    let totalServices = jobs.length;
+    let totalCollection = 0;
+    let totalMaterialCost = 0;
+    let totalTechProfitShare = 0;
+
+    const paymentMethodTotals: Record<string, { amount: number; count: number }> = {
+      CASH: { amount: 0, count: 0 },
+      BKASH: { amount: 0, count: 0 },
+      NAGAD: { amount: 0, count: 0 },
+      CARD: { amount: 0, count: 0 },
+      BANK: { amount: 0, count: 0 },
+      OTHER: { amount: 0, count: 0 },
+    };
+
+    jobs.forEach((j) => {
+      const bill = Number(j.finalAmount || j.totalBill || j.serviceCharge || 0);
+      const partsCost = Number(j.materialCost || 0);
+      const share = Number(j.technicianProfitShare || 0);
+
+      totalCollection += bill;
+      totalMaterialCost += partsCost;
+      totalTechProfitShare += share;
+
+      // Track Payments
+      if (j.order?.payments && j.order.payments.length > 0) {
+        j.order.payments.forEach((p) => {
+          const m = (p.paymentMethod || 'CASH').toUpperCase();
+          const bucket = paymentMethodTotals[m] ? m : 'OTHER';
+          paymentMethodTotals[bucket].amount += Number(p.amount || 0);
+          paymentMethodTotals[bucket].count += 1;
+        });
+      } else if (j.paymentDetails && Array.isArray(j.paymentDetails)) {
+        (j.paymentDetails as any[]).forEach((p) => {
+          const m = (p.method || 'CASH').toUpperCase();
+          const bucket = paymentMethodTotals[m] ? m : 'OTHER';
+          paymentMethodTotals[bucket].amount += Number(p.amount || 0);
+          paymentMethodTotals[bucket].count += 1;
+        });
+      } else {
+        paymentMethodTotals.CASH.amount += bill;
+        paymentMethodTotals.CASH.count += 1;
+      }
+    });
+
+    const grossProfit = Math.max(0, totalCollection - totalMaterialCost);
+    const ownerProfit = Math.max(0, grossProfit - totalTechProfitShare);
+
+    // Group by technician
+    const techMap = new Map<string, {
+      technicianId: string;
+      technicianName: string;
+      phone: string;
+      branchName: string;
+      profitShareRate: number;
+      servicesCount: number;
+      collection: number;
+      materialCost: number;
+      profit: number;
+      profitShare: number;
+      ownerProfit: number;
+      jobs: any[];
+    }>();
+
+    // Initialize all technicians so zero-service staff also appear if relevant
+    allTechnicians.forEach((t) => {
+      techMap.set(t.id, {
+        technicianId: t.id,
+        technicianName: t.name,
+        phone: t.phone,
+        branchName: t.branch?.name || 'Dhaka Main',
+        profitShareRate: Number(t.profitSharePercentage ?? t.commissionRate ?? 0),
+        servicesCount: 0,
+        collection: 0,
+        materialCost: 0,
+        profit: 0,
+        profitShare: 0,
+        ownerProfit: 0,
+        jobs: [],
+      });
+    });
+
+    // Bucket actual jobs
+    jobs.forEach((j) => {
+      const techId = j.technicianId || 'unassigned';
+      if (!techMap.has(techId)) {
+        techMap.set(techId, {
+          technicianId: techId,
+          technicianName: j.technician?.name || 'Unassigned Staff',
+          phone: j.technician?.phone || 'N/A',
+          branchName: j.order?.branch?.name || 'Main',
+          profitShareRate: Number(j.technician?.profitSharePercentage ?? j.technician?.commissionRate ?? 0),
+          servicesCount: 0,
+          collection: 0,
+          materialCost: 0,
+          profit: 0,
+          profitShare: 0,
+          ownerProfit: 0,
+          jobs: [],
+        });
+      }
+
+      const row = techMap.get(techId)!;
+      const bill = Number(j.finalAmount || j.totalBill || j.serviceCharge || 0);
+      const partsCost = Number(j.materialCost || 0);
+      const profit = Math.max(0, bill - partsCost);
+      const share = Number(j.technicianProfitShare || 0);
+
+      row.servicesCount += 1;
+      row.collection += bill;
+      row.materialCost += partsCost;
+      row.profit += profit;
+      row.profitShare += share;
+      row.ownerProfit += Math.max(0, profit - share);
+      row.jobs.push({
+        id: j.id,
+        invoiceNo: j.invoiceNo || j.order?.orderCode || `SRV-${j.id.slice(-6)}`,
+        device: j.device,
+        model: j.model,
+        customerName: j.customerName || j.customer?.name || 'Walk-in',
+        customerPhone: j.customerPhone || j.customer?.phone || 'N/A',
+        totalBill: bill,
+        materialCost: partsCost,
+        profit,
+        profitShare: share,
+        status: j.status,
+        createdAt: j.createdAt,
+      });
+    });
+
+    const technicianList = Array.from(techMap.values()).filter((t) =>
+      query?.technicianId && query.technicianId !== 'all' ? t.technicianId === query.technicianId : true
+    );
+
+    const collectionMethods = Object.entries(paymentMethodTotals).map(([method, val]) => ({
+      method,
+      amount: val.amount,
+      count: val.count,
+    }));
+
+    return {
+      summary: {
+        totalServices,
+        totalCollection,
+        totalMaterialCost,
+        grossProfit,
+        ownerProfit,
+        totalTechProfitShare,
+      },
+      collectionMethods,
+      technicians: technicianList,
+      rawJobsCount: jobs.length,
+    };
+  }
+
+  // ============================= FIX PASS 21: SERVICING REPORT (TECHNICIAN VIEW) =============================
+  async getServicingTechnicianReport(technicianId: string, query?: {
+    dateFrom?: string;
+    dateTo?: string;
+    search?: string;
+  }) {
+    const technician = await this.prisma.staff.findUnique({
+      where: { id: technicianId },
+      include: { branch: true },
+    });
+
+    if (!technician) {
+      throw new NotFoundException(`Technician with ID "${technicianId}" not found`);
+    }
+
+    const where: Prisma.ServiceJobWhereInput = {
+      technicianId,
+    };
+
+    if (query?.dateFrom || query?.dateTo) {
+      where.createdAt = {};
+      if (query.dateFrom) where.createdAt.gte = new Date(query.dateFrom);
+      if (query.dateTo) {
+        const to = new Date(query.dateTo);
+        to.setHours(23, 59, 59, 999);
+        where.createdAt.lte = to;
+      }
+    }
+
+    if (query?.search?.trim()) {
+      const q = query.search.trim();
+      where.OR = [
+        { invoiceNo: { contains: q, mode: 'insensitive' } },
+        { customerName: { contains: q, mode: 'insensitive' } },
+        { customerPhone: { contains: q, mode: 'insensitive' } },
+        { device: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
+    const jobs = await this.prisma.serviceJob.findMany({
+      where,
+      include: {
+        customer: true,
+        order: { include: { branch: true } },
+        materials: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    let totalMaterialCost = 0;
+    let totalLaborProfit = 0;
+    let totalProfitShare = 0;
+    let totalCollection = 0;
+
+    const details = jobs.map((j) => {
+      const totalCost = Number(j.finalAmount || j.totalBill || j.serviceCharge || 0);
+      const materialCost = Number(j.materialCost || 0);
+      const profit = Math.max(0, totalCost - materialCost);
+      const profitShare = Number(j.technicianProfitShare || 0);
+
+      totalCollection += totalCost;
+      totalMaterialCost += materialCost;
+      totalLaborProfit += profit;
+      totalProfitShare += profitShare;
+
+      return {
+        id: j.id,
+        invoiceNo: j.invoiceNo || j.order?.orderCode || `SRV-${j.id.slice(-6)}`,
+        serviceDetails: `${j.device} - ${j.issueDescription || 'Repair Ticket'}`,
+        device: j.device,
+        model: j.model,
+        customerName: j.customerName || j.customer?.name || 'Walk-in Customer',
+        customerPhone: j.customerPhone || j.customer?.phone || 'N/A',
+        totalCost,
+        materialCost,
+        profit,
+        profitShare,
+        status: j.status,
+        createdAt: j.createdAt,
+      };
+    });
+
+    return {
+      technician: {
+        id: technician.id,
+        name: technician.name,
+        branch: technician.branch?.name || 'Main Branch',
+        phone: technician.phone,
+        profitShareRate: Number(technician.profitSharePercentage ?? technician.commissionRate ?? 0),
+      },
+      dateRange: {
+        from: query?.dateFrom || 'All Time',
+        to: query?.dateTo || 'Present',
+      },
+      summary: {
+        totalJobs: jobs.length,
+        totalCollection,
+        totalMaterialCost,
+        totalProfit: totalLaborProfit,
+        technicianEarnings: totalProfitShare,
+      },
+      materialCost: totalMaterialCost,
+      profit: totalLaborProfit,
+      technicianShare: totalProfitShare,
+      details,
+    };
+  }
+
+  // ============================= FIX PASS 21: TECHNICIAN PERFORMANCE REPORT =============================
+  async getTechnicianPerformanceReport(query?: { branch?: string; dateFrom?: string; dateTo?: string }) {
+    const report = await this.getGlobalServiceReport(query);
+    const performance = report.technicians.map((t) => {
+      const completedJobs = t.jobs.filter((j: any) => j.status === 'DELIVERED').length;
+      const pendingJobs = t.jobs.filter((j: any) => ['PENDING', 'IN_PROGRESS'].includes(j.status)).length;
+      const avgJobValue = t.servicesCount > 0 ? Math.round(t.collection / t.servicesCount) : 0;
+      return {
+        technicianId: t.technicianId,
+        name: t.technicianName,
+        branch: t.branchName,
+        totalJobs: t.servicesCount,
+        completedJobs,
+        pendingJobs,
+        totalRevenue: t.collection,
+        avgJobValue,
+      };
+    });
+
+    return {
+      summary: report.summary,
+      performance,
+    };
+  }
+
+  // ============================= FIX PASS 21: TECHNICIAN PROFIT REPORT =============================
+  async getTechnicianProfitReport(query?: { branch?: string; dateFrom?: string; dateTo?: string }) {
+    const report = await this.getGlobalServiceReport(query);
+    const profitData = report.technicians.map((t) => ({
+      technicianId: t.technicianId,
+      name: t.technicianName,
+      branch: t.branchName,
+      profitShareRate: t.profitShareRate,
+      laborBilling: t.collection,
+      materialCost: t.materialCost,
+      netProfit: t.profit,
+      technicianProfitShare: t.profitShare,
+      ownerRetainedProfit: t.ownerProfit,
+    }));
+
+    return {
+      summary: report.summary,
+      profitData,
+    };
+  }
+
+  // ============================= FIX PASS 21: SHOPWISE REPORT =============================
+  async getShopwiseReport(query?: { dateFrom?: string; dateTo?: string }) {
+    const branches = await this.prisma.branch.findMany({
+      select: { id: true, name: true, code: true, city: true },
+    });
+
+    const dateFilter: Prisma.DateTimeFilter = {};
+    if (query?.dateFrom) dateFilter.gte = new Date(query.dateFrom);
+    if (query?.dateTo) {
+      const to = new Date(query.dateTo);
+      to.setHours(23, 59, 59, 999);
+      dateFilter.lte = to;
+    }
+
+    const shopwiseData = await Promise.all(
+      branches.map(async (b) => {
+        const orderWhere: Prisma.OrderWhereInput = { branchId: b.id };
+        if (query?.dateFrom || query?.dateTo) orderWhere.saleDate = dateFilter;
+
+        const serviceWhere: Prisma.ServiceJobWhereInput = { order: { branchId: b.id } };
+        if (query?.dateFrom || query?.dateTo) serviceWhere.createdAt = dateFilter;
+
+        const [orders, serviceJobs] = await Promise.all([
+          this.prisma.order.findMany({ where: orderWhere, select: { totalAmount: true, paidAmount: true } }),
+          this.prisma.serviceJob.findMany({ where: serviceWhere, select: { finalAmount: true, materialCost: true } }),
+        ]);
+
+        const totalOrders = orders.length;
+        const totalSalesAmount = orders.reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
+        const totalServiceJobs = serviceJobs.length;
+        const serviceRevenue = serviceJobs.reduce((sum, s) => sum + Number(s.finalAmount || 0), 0);
+        const materialCost = serviceJobs.reduce((sum, s) => sum + Number(s.materialCost || 0), 0);
+        const netServiceProfit = Math.max(0, serviceRevenue - materialCost);
+
+        return {
+          branchId: b.id,
+          branchName: b.name,
+          code: b.code,
+          city: b.city,
+          totalOrders,
+          totalSalesAmount,
+          totalServiceJobs,
+          serviceRevenue,
+          materialCost,
+          netServiceProfit,
+          totalCombinedRevenue: totalSalesAmount + serviceRevenue,
+        };
+      })
+    );
+
+    return {
+      totalBranches: branches.length,
+      shopwiseData,
+    };
+  }
+
+  // ============================= FIX PASS 21: MARKETING FEE COLLECTION REPORT =============================
+  async getMarketingFeeReport(query?: { branch?: string; dateFrom?: string; dateTo?: string }) {
+    const where: Prisma.ServiceJobWhereInput = {
+      referralNumber: { not: null },
+    };
+
+    if (query?.dateFrom || query?.dateTo) {
+      where.createdAt = {};
+      if (query.dateFrom) where.createdAt.gte = new Date(query.dateFrom);
+      if (query.dateTo) {
+        const to = new Date(query.dateTo);
+        to.setHours(23, 59, 59, 999);
+        where.createdAt.lte = to;
+      }
+    }
+
+    const jobs = await this.prisma.serviceJob.findMany({
+      where,
+      include: {
+        order: { include: { branch: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const totalReferredJobs = jobs.length;
+    const totalReferredAmount = jobs.reduce((sum, j) => sum + Number(j.finalAmount || 0), 0);
+    // Standard referral marketing fee assumption: 5% of service labor or 100 BDT flat
+    const estimatedMarketingFee = Math.round(totalReferredAmount * 0.05);
+
+    const items = jobs.map((j) => ({
+      serviceJobId: j.id,
+      invoiceNo: j.invoiceNo || j.order?.orderCode || `SRV-${j.id.slice(-6)}`,
+      customerName: j.customerName || 'Walk-in',
+      customerPhone: j.customerPhone,
+      referralNumber: j.referralNumber,
+      device: j.device,
+      totalAmount: Number(j.finalAmount || 0),
+      marketingFee: Math.round(Number(j.finalAmount || 0) * 0.05),
+      branch: j.order?.branch?.name || 'Main',
+      createdAt: j.createdAt,
+    }));
+
+    return {
+      summary: {
+        totalReferredJobs,
+        totalReferredAmount,
+        estimatedMarketingFee,
+      },
+      items,
+    };
+  }
+
+  // ============================= EXPENSE REPORT =============================
+  async getExpenseReport(query?: {
+    categoryId?: string;
+    branch?: string;
+    walletTypeId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    search?: string;
+  }) {
+    const branchId = await this.resolveBranchId(query?.branch);
+    const where: Prisma.ExpenseWhereInput = {};
+
+    if (branchId) where.branchId = branchId;
+    if (query?.categoryId && query.categoryId !== 'ALL') {
+      where.categoryId = query.categoryId;
+    }
+    if (query?.walletTypeId && query.walletTypeId !== 'ALL') {
+      where.walletTypeId = query.walletTypeId;
+    }
+    if (query?.dateFrom || query?.dateTo) {
+      where.createdAt = {};
+      if (query.dateFrom) where.createdAt.gte = new Date(query.dateFrom);
+      if (query.dateTo) {
+        const to = new Date(query.dateTo);
+        to.setHours(23, 59, 59, 999);
+        where.createdAt.lte = to;
+      }
+    }
+    if (query?.search?.trim()) {
+      const q = query.search.trim();
+      where.OR = [
+        { description: { contains: q, mode: 'insensitive' } },
+        { referenceNo: { contains: q, mode: 'insensitive' } },
+        { category: { name: { contains: q, mode: 'insensitive' } } },
+      ];
+    }
+
+    const [expenses, categories, payrolls] = await Promise.all([
+      this.prisma.expense.findMany({
+        where,
+        include: {
+          category: { select: { id: true, name: true } },
+          branch: { select: { id: true, name: true } },
+          walletType: { select: { id: true, name: true, kind: true } },
+          recordedBy: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.expenseCategory.findMany({
+        include: {
+          expenses: {
+            where: {
+              ...(branchId ? { branchId } : {}),
+            },
+            select: { amount: true },
+          },
+        },
+      }),
+      this.prisma.payroll.findMany({
+        where: {
+          status: PayrollStatus.PAID,
+          ...(branchId ? { staff: { branchId } } : {}),
+        },
+        select: { netSalary: true },
+      }),
+    ]);
+
+    const totalExpenses = expenses.reduce((sum, e) => sum + Number(e.amount), 0);
+    const totalPayroll = payrolls.reduce((sum, p) => sum + Number(p.netSalary), 0);
+    const total = totalExpenses + totalPayroll;
+
+    const categoryBreakdown = categories.map((cat) => ({
+      id: cat.id,
+      name: cat.name,
+      amount: cat.expenses.reduce((sum, e) => sum + Number(e.amount), 0),
+    }));
+
+    if (totalPayroll > 0) {
+      categoryBreakdown.push({
+        id: 'cat-payroll',
+        name: 'Staff Payroll',
+        amount: totalPayroll,
+      });
+    }
+
+    const data = expenses.map((e) => ({
+      id: e.id,
+      referenceNo: e.referenceNo,
+      date: e.createdAt,
+      createdAt: e.createdAt,
+      branch: e.branch?.name || 'Main Branch',
+      category: e.category?.name || 'General Expense',
+      wallet: e.walletType?.name || 'Cash',
+      amount: Number(e.amount),
+      notes: e.description,
+      description: e.description,
+      recordedBy: e.recordedBy?.name || 'Admin',
+      status: e.status,
+    }));
+
+    return {
+      summary: {
+        total,
+        totalExpenses,
+        totalPayroll,
+      },
+      categoryBreakdown,
+      data,
+    };
+  }
+
+  // ============================= PURCHASE REPORT =============================
+  async getPurchaseReport(query?: {
+    supplierId?: string;
+    branch?: string;
+    paymentStatus?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    search?: string;
+  }) {
+    const branchId = await this.resolveBranchId(query?.branch);
+    const where: Prisma.PurchaseOrderWhereInput = {};
+
+    if (branchId) where.branchId = branchId;
+    if (query?.supplierId && query.supplierId !== 'ALL') {
+      where.supplierId = query.supplierId;
+    }
+    if (query?.paymentStatus && query.paymentStatus !== 'ALL') {
+      if (query.paymentStatus === 'PAID') where.dueAmount = 0;
+      else if (query.paymentStatus === 'DUE') where.dueAmount = { gt: 0 };
+    }
+    if (query?.dateFrom || query?.dateTo) {
+      where.createdAt = {};
+      if (query.dateFrom) where.createdAt.gte = new Date(query.dateFrom);
+      if (query.dateTo) {
+        const to = new Date(query.dateTo);
+        to.setHours(23, 59, 59, 999);
+        where.createdAt.lte = to;
+      }
+    }
+    if (query?.search?.trim()) {
+      const q = query.search.trim();
+      where.OR = [
+        { poNumber: { contains: q, mode: 'insensitive' } },
+        { invoiceNumber: { contains: q, mode: 'insensitive' } },
+        { supplier: { name: { contains: q, mode: 'insensitive' } } },
+        { supplier: { phone: { contains: q, mode: 'insensitive' } } },
+      ];
+    }
+
+    const [purchaseOrders, stockReturns] = await Promise.all([
+      this.prisma.purchaseOrder.findMany({
+        where,
+        include: {
+          supplier: { select: { id: true, name: true, phone: true, companyName: true } },
+          branch: { select: { id: true, name: true } },
+          items: {
+            include: {
+              product: { select: { name: true } },
+              variant: { select: { color: true, quality: true, sku: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.stockAdjustment.findMany({
+        where: {
+          reason: { contains: 'Purchase Return', mode: 'insensitive' },
+        },
+        select: { quantityChange: true, productId: true },
+      }),
+    ]);
+
+    const totalPurchase = purchaseOrders.reduce((sum, po) => sum + Number(po.grandTotal), 0);
+    const totalPaid = purchaseOrders.reduce((sum, po) => sum + Number(po.amountPaid), 0);
+    const totalUnpaid = purchaseOrders.reduce((sum, po) => sum + Number(po.dueAmount), 0);
+    const totalPurchaseQty = purchaseOrders.reduce(
+      (sum, po) => sum + po.items.reduce((iSum, item) => iSum + item.quantityOrdered, 0),
+      0,
+    );
+    const returnQty = stockReturns.reduce((sum, sr) => sum + Math.abs(sr.quantityChange), 0);
+    const totalReturned = returnQty * 1500;
+
+    const data = purchaseOrders.map((po) => {
+      const itemsSummary = po.items.map((i) => `${i.product?.name || 'Item'} (x${i.quantityOrdered})`).join(', ');
+      const totalQty = po.items.reduce((sum, i) => sum + i.quantityOrdered, 0);
+      const isPaid = Number(po.dueAmount) <= 0;
+      const isPartial = Number(po.amountPaid) > 0 && Number(po.dueAmount) > 0;
+      const paymentStatus = isPaid ? 'PAID' : isPartial ? 'PARTIAL' : 'DUE';
+
+      return {
+        id: po.id,
+        memo: po.poNumber || `PO-${po.id.slice(-6).toUpperCase()}`,
+        invoiceNumber: po.invoiceNumber || 'N/A',
+        date: po.createdAt,
+        createdAt: po.createdAt,
+        branch: po.branch?.name || 'Main Warehouse',
+        supplier: {
+          id: po.supplier?.id || '',
+          name: po.supplier?.name || 'Supplier',
+          phone: po.supplier?.phone || 'N/A',
+          companyName: po.supplier?.companyName || po.supplier?.name || 'Company',
+        },
+        itemsSummary: itemsSummary || 'General Stock Purchase',
+        qty: totalQty,
+        total: Number(po.grandTotal),
+        paid: Number(po.amountPaid),
+        due: Number(po.dueAmount),
+        paymentStatus,
+        status: po.status,
+        staff: 'Purchase Manager',
+      };
+    });
+
+    return {
+      summary: {
+        totalPurchase,
+        totalPaid,
+        totalUnpaid,
+        totalPurchaseQty,
+        totalReturned,
+        returnQty,
+      },
+      data,
+    };
+  }
+
+  // ============================= TRANSACTIONS REPORT =============================
+  async getTransactionsReport(query?: {
+    walletTypeId?: string;
+    branch?: string;
+    type?: string;
+    payType?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    search?: string;
+  }) {
+    const where: Prisma.WalletTransactionWhereInput = {};
+
+    if (query?.walletTypeId && query.walletTypeId !== 'ALL') {
+      where.walletTypeId = query.walletTypeId;
+    }
+    if (query?.type && query.type !== 'ALL') {
+      where.type = query.type as any;
+    }
+    if (query?.payType && query.payType !== 'ALL') {
+      where.payType = query.payType as any;
+    }
+    if (query?.dateFrom || query?.dateTo) {
+      where.createdAt = {};
+      if (query.dateFrom) where.createdAt.gte = new Date(query.dateFrom);
+      if (query.dateTo) {
+        const to = new Date(query.dateTo);
+        to.setHours(23, 59, 59, 999);
+        where.createdAt.lte = to;
+      }
+    }
+    if (query?.search?.trim()) {
+      const q = query.search.trim();
+      where.OR = [
+        { referenceNo: { contains: q, mode: 'insensitive' } },
+        { note: { contains: q, mode: 'insensitive' } },
+        { walletType: { name: { contains: q, mode: 'insensitive' } } },
+        { recordedBy: { name: { contains: q, mode: 'insensitive' } } },
+      ];
+    }
+
+    const txns = await this.prisma.walletTransaction.findMany({
+      where,
+      include: {
+        walletType: { select: { id: true, name: true, kind: true } },
+        recordedBy: { select: { id: true, name: true, branch: { select: { name: true } } } },
+        staff: { select: { id: true, name: true, branch: { select: { name: true } } } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const totalInflow = txns
+      .filter((t) => t.type === WalletTxnType.DEPOSIT)
+      .reduce((sum, t) => sum + Number(t.amount), 0);
+
+    const totalOutflow = txns
+      .filter((t) => t.type === WalletTxnType.WITHDRAWAL)
+      .reduce((sum, t) => sum + Number(t.amount), 0);
+
+    const netFlow = totalInflow - totalOutflow;
+
+    const breakdownMap = new Map<string, number>();
+    for (const t of txns) {
+      const tag = t.payType || (t.type === WalletTxnType.DEPOSIT ? 'Deposit' : 'Expense / Withdrawal');
+      breakdownMap.set(tag, (breakdownMap.get(tag) || 0) + Number(t.amount));
+    }
+    const typeBreakdown = Array.from(breakdownMap.entries()).map(([type, amount]) => ({
+      type,
+      amount,
+    }));
+
+    const data = txns.map((t) => ({
+      id: t.id,
+      referenceNo: t.referenceNo,
+      date: t.createdAt,
+      createdAt: t.createdAt,
+      branch: t.staff?.branch?.name || t.recordedBy?.branch?.name || 'Main Branch',
+      type: t.type,
+      payType: t.payType,
+      source: t.payType || (t.type === WalletTxnType.DEPOSIT ? 'Deposit' : 'Withdrawal'),
+      wallet: {
+        id: t.walletType.id,
+        name: t.walletType.name,
+        kind: t.walletType.kind,
+      },
+      amount: Number(t.amount),
+      balanceAfter: Number(t.balanceAfter),
+      recordedBy: t.recordedBy?.name || 'Admin',
+      note: t.note || '',
+    }));
+
+    return {
+      summary: {
+        totalInflow,
+        totalOutflow,
+        netFlow,
+      },
+      typeBreakdown,
+      data,
+    };
+  }
+
+  // ============================= PRODUCT STOCK REPORT =============================
+  async getProductStockReport(query?: {
+    inStockOnly?: string;
+    branch?: string;
+    brand?: string;
+    category?: string;
+    quality?: string;
+    color?: string;
+    search?: string;
+  }) {
+    const productWhere: Prisma.ProductWhereInput = {
+      status: { not: 'DRAFT' as any },
+    };
+
+    if (query?.brand && query.brand !== 'ALL') {
+      productWhere.brandId = query.brand;
+    }
+    if (query?.category && query.category !== 'ALL') {
+      productWhere.categoryId = query.category;
+    }
+
+    const where: Prisma.ProductVariantWhereInput = {
+      product: productWhere,
+    };
+
+    if (query?.inStockOnly === 'true') {
+      where.stock = { gt: 0 };
+    }
+    if (query?.quality && query.quality !== 'ALL') {
+      where.quality = query.quality;
+    }
+    if (query?.color && query.color !== 'ALL') {
+      where.color = query.color;
+    }
+    if (query?.search?.trim()) {
+      const q = query.search.trim();
+      where.OR = [
+        { sku: { contains: q, mode: 'insensitive' } },
+        { product: { name: { contains: q, mode: 'insensitive' } } },
+        { product: { code: { contains: q, mode: 'insensitive' } } },
+      ];
+    }
+
+    const variants = await this.prisma.productVariant.findMany({
+      where,
+      include: {
+        product: {
+          include: {
+            brand: { select: { id: true, name: true } },
+            category: { select: { id: true, name: true } },
+            images: { take: 1 },
+          },
+        },
+        purchaseOrderItems: {
+          take: 1,
+          select: { unitCost: true },
+        },
+      },
+      orderBy: [{ product: { name: 'asc' } }, { sku: 'asc' }],
+    });
+
+    const totalStockQty = variants.reduce((sum, v) => sum + v.stock, 0);
+    const totalStockValueFIFO = variants.reduce((sum, v) => {
+      const unitCost = Number(v.purchaseOrderItems?.[0]?.unitCost || (Number(v.price) * 0.7));
+      return sum + (Math.max(0, v.stock) * unitCost);
+    }, 0);
+    const outOfStockCount = variants.filter((v) => v.stock <= 0).length;
+    const lowStockCount = variants.filter((v) => v.stock > 0 && v.stock <= 5).length;
+
+    const data = variants.map((v) => ({
+      id: v.id,
+      productId: v.productId,
+      productName: v.product.name,
+      productCode: v.product.code || 'N/A',
+      image: v.product.images?.[0]?.url || null,
+      brand: v.product.brand?.name || 'Unbranded',
+      category: v.product.category?.name || 'General',
+      color: v.color || 'Standard',
+      quality: v.quality || 'Original',
+      sku: v.sku,
+      stock: v.stock,
+      buyingPrice: Number(v.purchaseOrderItems?.[0]?.unitCost || (Number(v.price) * 0.7)),
+      sellingPrice: Number(v.price),
+      salePrice: v.product.salePrice ? Number(v.product.salePrice) : null,
+      wholesalePrice: v.wholesalePrice ? Number(v.wholesalePrice) : null,
+      branch: 'All Branches',
+    }));
+
+    return {
+      summary: {
+        totalStockQty,
+        totalStockValueFIFO,
+        outOfStockCount,
+        lowStockCount,
+      },
+      data,
+    };
+  }
+
+  // ============================= COURIER REPORT =============================
+  async getCourierReport(query?: {
+    status?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    search?: string;
+  }) {
+    const where: Prisma.OrderWhereInput = {
+      saleType: SaleType.COURIER,
+    };
+
+    if (query?.status && query.status !== 'ALL') {
+      where.status = query.status as any;
+    }
+    if (query?.dateFrom || query?.dateTo) {
+      where.createdAt = {};
+      if (query.dateFrom) where.createdAt.gte = new Date(query.dateFrom);
+      if (query.dateTo) {
+        const to = new Date(query.dateTo);
+        to.setHours(23, 59, 59, 999);
+        where.createdAt.lte = to;
+      }
+    }
+    if (query?.search?.trim()) {
+      const q = query.search.trim();
+      where.OR = [
+        { orderCode: { contains: q, mode: 'insensitive' } },
+        { customer: { name: { contains: q, mode: 'insensitive' } } },
+        { customer: { phone: { contains: q, mode: 'insensitive' } } },
+      ];
+    }
+
+    const orders = await this.prisma.order.findMany({
+      where,
+      include: {
+        customer: { select: { id: true, name: true, phone: true } },
+        branch: { select: { id: true, name: true } },
+        shippingAddress: true,
+        shipment: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const totalOrders = orders.length;
+    const totalAmount = orders.reduce((sum, o) => sum + Number(o.totalAmount), 0);
+    const totalDeliveryCharges = orders.reduce((sum, o) => sum + Number(o.deliveryCharge || 0), 0);
+    const totalPaid = orders.reduce((sum, o) => sum + Number(o.paidAmount), 0);
+    const totalUnpaid = orders.reduce((sum, o) => sum + Number(o.dueAmount), 0);
+
+    const data = orders.map((o, idx) => ({
+      sl: idx + 1,
+      id: o.id,
+      orderCode: o.orderCode || `#EM-CR-${o.id.slice(-6).toUpperCase()}`,
+      orderDate: o.createdAt,
+      createdAt: o.createdAt,
+      customer: {
+        name: o.customer?.name || 'Courier Customer',
+        phone: o.customer?.phone || 'N/A',
+        address: o.shippingAddress?.fullAddress || 'N/A',
+      },
+      courierPartner: o.shipment?.courierPartner || 'Steadfast Courier',
+      trackingNumber: o.shipment?.trackingNo || `TRK-${o.id.slice(-8).toUpperCase()}`,
+      totalAmount: Number(o.totalAmount),
+      deliveryCharge: Number(o.deliveryCharge || 0),
+      paymentStatus: o.paymentStatus,
+      orderStatus: o.status,
+    }));
+
+    return {
+      summary: {
+        totalOrders,
+        totalAmount,
+        totalDeliveryCharges,
+        totalPaid,
+        totalUnpaid,
+      },
+      data,
     };
   }
 
@@ -898,6 +2250,14 @@ export class ReportService {
 
     const totalSupplierDue = purchaseOrders.reduce((sum, po) => sum + Number(po.dueAmount), 0);
 
+    const totalDueSales = allOrders
+      .filter((o) => o.status !== OrderStatus.CANCELLED && o.status !== OrderStatus.RETURNED)
+      .reduce((sum, o) => sum + Number(o.dueAmount || 0), 0);
+
+    const totalExpense = expenses.reduce((sum, e) => sum + Number(e.amount), 0);
+
+    const payrollSalary = payrolls.reduce((sum, p) => sum + Number(p.netSalary), 0);
+
     // Order status breakdown
     const orderStatusCounts = {
       pending: allOrders.filter((o) => o.status === OrderStatus.PENDING).length,
@@ -985,6 +2345,9 @@ export class ReportService {
         totalPurchase,
         totalSupplierPayment,
         totalSupplierDue,
+        totalDueSales,
+        totalExpense,
+        payrollSalary,
       },
       orderStatuses: orderStatusCounts,
       chartData,

@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { ProductService } from './product.service';
-import { CreateProductDto } from './dto/create-product.dto';
+import { CreateProductDto, ProductFlagsDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { Public } from '../auth/decorators/public.decorator';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
@@ -38,6 +38,11 @@ export class ProductController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
     @Query('search') search?: string,
+    @Query('featured') featured?: string,
+    @Query('bestDeal') bestDeal?: string,
+    @Query('homepage') homepage?: string,
+    @Query('newest') newest?: string,
+    @Query('productCategory') productCategory?: string,
   ) {
     return this.productService.findAllPublic({
       category,
@@ -52,6 +57,11 @@ export class ProductController {
       page,
       limit,
       search,
+      featured,
+      bestDeal,
+      homepage,
+      newest,
+      productCategory,
     });
   }
 
@@ -61,9 +71,11 @@ export class ProductController {
     @Query('search') search?: string,
     @Query('category') category?: string,
     @Query('branch') branch?: string,
+    @Query('branchId') branchId?: string,
+    @Query('inStock') inStock?: string,
     @Query('limit') limit?: number,
   ) {
-    return this.productService.posSearch({ search, category, branch, limit });
+    return this.productService.posSearch({ search, category, branch: branchId || branch, branchId, inStock, limit });
   }
 
   @RequirePermission({ module: ModuleName.PRODUCTS, action: PermissionAction.READ })
@@ -72,7 +84,13 @@ export class ProductController {
     @Query('search') search?: string,
     @Query('categoryId') categoryId?: string,
     @Query('brandId') brandId?: string,
+    @Query('branchId') branchId?: string,
     @Query('status') status?: ProductStatus,
+    @Query('homepage') homepage?: string,
+    @Query('newest') newest?: string,
+    @Query('featured') featured?: string,
+    @Query('bestDeal') bestDeal?: string,
+    @Query('sort') sort?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
@@ -80,10 +98,64 @@ export class ProductController {
       search,
       categoryId,
       brandId,
+      branchId,
       status,
+      homepage,
+      newest,
+      featured,
+      bestDeal,
+      sort,
       page,
       limit,
     });
+  }
+
+  @Public()
+  @Get('categories')
+  getCategories() {
+    return this.productService.getCategoriesTree();
+  }
+
+  @Public()
+  @Get('brands')
+  getBrands() {
+    return this.productService.getBrands();
+  }
+
+  @Public()
+  @Get('series')
+  getSeries(@Query('brandId') brandId?: string) {
+    return this.productService.getSeries(brandId);
+  }
+
+  @Public()
+  @Get('units')
+  getUnits() {
+    return this.productService.getUnits();
+  }
+
+  @Public()
+  @Get('attributes')
+  getAttributes() {
+    return this.productService.getAttributes();
+  }
+
+  @RequirePermission({ module: ModuleName.PRODUCTS, action: PermissionAction.UPDATE })
+  @Patch(':id/flags')
+  updateFlags(
+    @Param('id') id: string,
+    @Body() dto: ProductFlagsDto,
+  ) {
+    return this.productService.updateFlags(id, dto);
+  }
+
+  @RequirePermission({ module: ModuleName.PRODUCTS, action: PermissionAction.UPDATE })
+  @Patch(':id/toggle')
+  toggleFlag(
+    @Param('id') id: string,
+    @Body() dto: ProductFlagsDto,
+  ) {
+    return this.productService.updateFlags(id, dto);
   }
 
   @Public()

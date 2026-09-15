@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsBoolean,
   IsEnum,
   IsNotEmpty,
   IsNumber,
@@ -9,6 +10,28 @@ import {
 } from 'class-validator';
 import { Type, Transform, plainToInstance } from 'class-transformer';
 import { ProductStatus } from '@prisma/client';
+
+export class ProductFlagsDto {
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  @IsOptional()
+  isNewest?: boolean;
+
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  @IsOptional()
+  isFeatured?: boolean;
+
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  @IsOptional()
+  isHomepage?: boolean;
+
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  @IsOptional()
+  isBestDeal?: boolean;
+}
 
 export class ProductVariantDto {
   @IsString()
@@ -27,6 +50,26 @@ export class ProductVariantDto {
   @IsNumber()
   price: number;
 
+  @Transform(({ value }) => (value !== undefined && value !== null ? Number(value) : undefined))
+  @IsNumber()
+  @IsOptional()
+  buyingPrice?: number;
+
+  @Transform(({ value }) => (value !== undefined && value !== null ? Number(value) : undefined))
+  @IsNumber()
+  @IsOptional()
+  wholesalePrice?: number;
+
+  @Transform(({ value }) => (value !== undefined && value !== null ? Number(value) : undefined))
+  @IsNumber()
+  @IsOptional()
+  discountedPrice?: number;
+
+  @Transform(({ value }) => (value !== undefined && value !== null ? Number(value) : undefined))
+  @IsNumber()
+  @IsOptional()
+  offerPrice?: number;
+
   @Transform(({ value }) => (value !== undefined && value !== null ? Number(value) : 0))
   @IsNumber()
   stock: number;
@@ -34,6 +77,9 @@ export class ProductVariantDto {
   @IsString()
   @IsOptional()
   sku?: string;
+
+  @IsOptional()
+  attributes?: Record<string, any>;
 }
 
 export class ProductSpecificationDto {
@@ -52,12 +98,36 @@ export class ProductSpecificationDto {
 
 export class CreateProductDto {
   @IsString()
+  @IsOptional()
+  code?: string;
+
+  @IsString()
   @IsNotEmpty()
   name: string;
 
   @IsString()
   @IsOptional()
   slug?: string;
+
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  @IsOptional()
+  isNewest?: boolean;
+
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  @IsOptional()
+  isFeatured?: boolean;
+
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  @IsOptional()
+  isHomepage?: boolean;
+
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  @IsOptional()
+  isBestDeal?: boolean;
 
   @IsString()
   @IsOptional()
@@ -96,6 +166,45 @@ export class CreateProductDto {
   @IsNumber()
   @IsOptional()
   costPrice?: number;
+
+  @Transform(({ value }) => (value !== undefined && value !== '' && value !== null ? Number(value) : undefined))
+  @IsNumber()
+  @IsOptional()
+  buyingPrice?: number;
+
+  @Transform(({ value }) => (value !== undefined && value !== '' && value !== null ? Number(value) : undefined))
+  @IsNumber()
+  @IsOptional()
+  wholesalePrice?: number;
+
+  @Transform(({ value }) => (value !== undefined && value !== '' && value !== null ? Number(value) : 1))
+  @IsNumber()
+  @IsOptional()
+  minOrderQty?: number = 1;
+
+  @IsString()
+  @IsOptional()
+  warranty?: string;
+
+  @IsString()
+  @IsOptional()
+  productType?: string = 'Spare Parts';
+
+  @IsString()
+  @IsOptional()
+  condition?: string;
+
+  @IsString()
+  @IsOptional()
+  ogImageUrl?: string;
+
+  @IsArray()
+  @IsOptional()
+  categoryIds?: string[];
+
+  @IsString()
+  @IsOptional()
+  branchId?: string;
 
   @IsEnum(ProductStatus)
   @IsOptional()

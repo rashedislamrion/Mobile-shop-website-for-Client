@@ -19,7 +19,7 @@ export class AppController {
       status: 'ok',
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
-      service: 'novamobile-api',
+      service: 'mobilehubbd-api',
       environment: process.env.NODE_ENV || 'development',
     };
   }

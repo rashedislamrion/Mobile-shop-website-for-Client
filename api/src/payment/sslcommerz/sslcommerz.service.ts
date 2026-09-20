@@ -69,7 +69,7 @@ export class SslcommerzService {
     params.append('cancel_url', cancelUrl);
     params.append('ipn_url', ipnUrl);
     params.append('cus_name', order.customer?.name || 'Valued Customer');
-    params.append('cus_email', order.customer?.email || 'customer@novamobile.com');
+    params.append('cus_email', order.customer?.email || 'customer@mobilehubbd.com');
     params.append('cus_add1', order.shippingAddress?.fullAddress || 'Dhaka, Bangladesh');
     params.append('cus_city', 'Dhaka');
     params.append('cus_country', 'Bangladesh');

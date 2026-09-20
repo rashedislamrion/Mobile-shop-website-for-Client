@@ -19,18 +19,18 @@ export class AuthController {
   @Public()
   @Post('customer/register')
   async registerCustomer(@Body() dto: RegisterCustomerDto, @Res({ passthrough: true }) res: Response) {
-    const { accessToken, refreshToken } = await this.authService.registerCustomer(dto);
+    const { accessToken, refreshToken, user, customer } = await this.authService.registerCustomer(dto);
     this.setCustomerRefreshTokenCookie(res, refreshToken);
-    return { accessToken };
+    return { accessToken, user, customer };
   }
 
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @Post('customer/login')
   async loginCustomer(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
-    const { accessToken, refreshToken } = await this.authService.loginCustomer(dto);
+    const { accessToken, refreshToken, user, customer } = await this.authService.loginCustomer(dto);
     this.setCustomerRefreshTokenCookie(res, refreshToken);
-    return { accessToken };
+    return { accessToken, user, customer };
   }
 
   @Public()

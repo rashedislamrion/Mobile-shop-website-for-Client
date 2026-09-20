@@ -17,7 +17,7 @@ import * as bcrypt from 'bcrypt';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('--- Starting NovaMobile Production Database Seeder ---');
+  console.log('--- Starting mobilehubbd Production Database Seeder ---');
 
   // ==========================================
   // 1. ROLES & PERMISSIONS
@@ -124,12 +124,12 @@ async function main() {
 
   // Demo 1: Global Admin
   await prisma.staff.upsert({
-    where: { email: 'demo.admin@novamobile.test' },
+    where: { email: 'demo.admin@mobilehubbd.test' },
     update: { passwordHash, roleId: adminRole.id, status: StaffStatus.ACTIVE },
     create: {
       employeeId: 'DEMO-ADM-01',
       name: 'Demo Global Admin',
-      email: 'demo.admin@novamobile.test',
+      email: 'demo.admin@mobilehubbd.test',
       phone: '+8801799000001',
       passwordHash,
       roleId: adminRole.id,
@@ -140,12 +140,12 @@ async function main() {
 
   // Main Admin Fallback
   await prisma.staff.upsert({
-    where: { email: 'admin@novamobile.test' },
+    where: { email: 'admin@mobilehubbd.test' },
     update: { passwordHash, roleId: adminRole.id, status: StaffStatus.ACTIVE },
     create: {
       employeeId: 'EMP-0001',
       name: 'Super Admin',
-      email: 'admin@novamobile.test',
+      email: 'admin@mobilehubbd.test',
       phone: '+8801700000000',
       passwordHash,
       roleId: adminRole.id,
@@ -157,12 +157,12 @@ async function main() {
   // Demo 2: Branch Admin
   if (branchAdminRole && dhakaBranch) {
     await prisma.staff.upsert({
-      where: { email: 'demo.branchadmin@novamobile.test' },
+      where: { email: 'demo.branchadmin@mobilehubbd.test' },
       update: { passwordHash, roleId: branchAdminRole.id, branchId: dhakaBranch.id, status: StaffStatus.ACTIVE },
       create: {
         employeeId: 'DEMO-BADM-01',
         name: 'Demo Branch Admin (Dhaka)',
-        email: 'demo.branchadmin@novamobile.test',
+        email: 'demo.branchadmin@mobilehubbd.test',
         phone: '+8801799000002',
         passwordHash,
         roleId: branchAdminRole.id,
@@ -177,7 +177,7 @@ async function main() {
   let techStaff: any = null;
   if (technicianRole && dhakaBranch) {
     techStaff = await prisma.staff.upsert({
-      where: { email: 'demo.technician@novamobile.test' },
+      where: { email: 'demo.technician@mobilehubbd.test' },
       update: {
         passwordHash,
         roleId: technicianRole.id,
@@ -189,7 +189,7 @@ async function main() {
       create: {
         employeeId: 'DEMO-TECH-01',
         name: 'Demo Technician (Dhaka)',
-        email: 'demo.technician@novamobile.test',
+        email: 'demo.technician@mobilehubbd.test',
         phone: '+8801799000003',
         passwordHash,
         roleId: technicianRole.id,
@@ -205,12 +205,12 @@ async function main() {
   // Demo 4: Custom Inventory Auditor
   if (auditorRole && dhakaBranch) {
     await prisma.staff.upsert({
-      where: { email: 'demo.auditor@novamobile.test' },
+      where: { email: 'demo.auditor@mobilehubbd.test' },
       update: { passwordHash, roleId: auditorRole.id, branchId: dhakaBranch.id, status: StaffStatus.ACTIVE },
       create: {
         employeeId: 'DEMO-AUD-01',
         name: 'Demo Inventory Auditor',
-        email: 'demo.auditor@novamobile.test',
+        email: 'demo.auditor@mobilehubbd.test',
         phone: '+8801799000004',
         passwordHash,
         roleId: auditorRole.id,
@@ -284,7 +284,7 @@ async function main() {
   if (!existingSettings) {
     await prisma.businessSetting.create({
       data: {
-        general: { storeName: 'Nova Mobile', email: 'contact@novamobile.com', phone: '+8801700000000' },
+        general: { storeName: 'mobilehubbd', email: 'contact@mobilehubbd.com', phone: '+8801700000000' },
         branding: { primaryColor: '#0f172a' },
         currencyTax: { currency: 'BDT', symbol: '৳' },
         orderSettings: { minOrder: 100 },
@@ -537,7 +537,7 @@ async function main() {
     create: {
       name: 'Md. Tanvir Hossain',
       phone: '01712345678',
-      email: 'tanvir.demo@novamobile.test',
+      email: 'tanvir.demo@mobilehubbd.test',
       passwordHash,
       source: 'SERVICE_WALKIN',
     },
@@ -636,12 +636,12 @@ async function main() {
   });
 
   console.log('----------------------------------------------------');
-  console.log('✓ NovaMobile Production Database Seeder finished successfully!');
+  console.log('✓ mobilehubbd Production Database Seeder finished successfully!');
   console.log('Client Demo Credentials:');
-  console.log(' - Global Admin: demo.admin@novamobile.test / Admin@12345');
-  console.log(' - Branch Admin: demo.branchadmin@novamobile.test / Admin@12345');
-  console.log(' - Technician: demo.technician@novamobile.test / Admin@12345 (25% share)');
-  console.log(' - Auditor: demo.auditor@novamobile.test / Admin@12345');
+  console.log(' - Global Admin: demo.admin@mobilehubbd.test / Admin@12345');
+  console.log(' - Branch Admin: demo.branchadmin@mobilehubbd.test / Admin@12345');
+  console.log(' - Technician: demo.technician@mobilehubbd.test / Admin@12345 (25% share)');
+  console.log(' - Auditor: demo.auditor@mobilehubbd.test / Admin@12345');
   console.log('----------------------------------------------------');
 }
 

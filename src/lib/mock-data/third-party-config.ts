@@ -38,7 +38,7 @@ export const mockThirdPartyConfig = {
     enabled: true,
     provider: 'BulkSMSBD', // 'BulkSMSBD', 'SSL Wireless', 'Custom API'
     apiKey: 'mock_sms_api_key_8899',
-    senderId: 'NOVAMOBILE',
+    senderId: 'MOBILEHUBBD',
     apiSecret: 'mock_sms_secret_abc',
     customUrl: '',
     templates: [
@@ -56,8 +56,8 @@ export const mockThirdPartyConfig = {
     username: 'mock_smtp_user',
     password: 'mock_smtp_password',
     encryption: 'tls', // 'tls', 'ssl', 'none'
-    fromName: 'NovaMobile ERP',
-    fromEmail: 'noreply@novamobile.com',
+    fromName: 'MobileHubBD ERP',
+    fromEmail: 'noreply@mobilehubbd.com',
     templates: [
       { id: 1, event: 'Order Confirmation', template: '<h1>Order Confirmed</h1><p>...</p>' },
       { id: 2, event: 'Password Reset', template: '<h1>Reset Password</h1><p>...</p>' },
@@ -67,7 +67,7 @@ export const mockThirdPartyConfig = {
   },
   firebase: {
     enabled: true,
-    projectId: 'novamobile-erp-mock',
+    projectId: 'mobilehubbd-erp-mock',
     serverKey: 'mock_firebase_server_key_778899',
     senderId: '9876543210',
     configFileName: ''

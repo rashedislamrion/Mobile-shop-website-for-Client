@@ -17,8 +17,8 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "NovaMobile - Online Mobile Parts & Accessories Store",
-  description: "E-commerce platform and ERP management system for mobile spare parts and accessories",
+  title: "MobileHubBD - Online Mobile Parts & Accessories Store",
+  description: "E-commerce platform and ERP management system for mobile spare parts and accessories - mobilehubbd",
 };
 
 export default function RootLayout({

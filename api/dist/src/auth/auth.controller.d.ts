@@ -10,9 +10,35 @@ export declare class AuthController {
     constructor(authService: AuthService);
     registerCustomer(dto: RegisterCustomerDto, res: Response): Promise<{
         accessToken: string;
+        user: {
+            id: string;
+            name: string;
+            email: string | null;
+            phone: string;
+            userType: string;
+        };
+        customer: {
+            id: string;
+            name: string;
+            email: string | null;
+            phone: string;
+        };
     }>;
     loginCustomer(dto: LoginDto, res: Response): Promise<{
         accessToken: string;
+        user: {
+            id: string;
+            name: string;
+            email: string | null;
+            phone: string;
+            userType: string;
+        };
+        customer: {
+            id: string;
+            name: string;
+            email: string | null;
+            phone: string;
+        };
     }>;
     loginStaff(dto: LoginDto, res: Response): Promise<{
         accessToken: string;

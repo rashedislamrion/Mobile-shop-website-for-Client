@@ -123,12 +123,12 @@ export default function GeneralSettingsPage() {
 
   // Form states
   const [general, setGeneral] = useState<any>({
-    websiteName: "NovaMobile",
-    websiteTitle: "NovaMobile - Smartphone Parts & Repair Shop",
+    websiteName: "mobilehubbd",
+    websiteTitle: "mobilehubbd - Smartphone Parts & Repair Shop",
     defaultCurrency: "BDT",
     currencyPosition: "LEFT",
     mobileNumber: "+880 1700-000000",
-    emailAddress: "contact@novamobile.com",
+    emailAddress: "contact@mobilehubbd.com",
     address: "Level 4, Bashundhara City Shopping Complex, Panthapath, Dhaka",
     showDownloadAppNav: true,
     googlePlayStoreLink: "https://play.google.com/store",
@@ -136,7 +136,7 @@ export default function GeneralSettingsPage() {
     showAdminFooter: true,
     hotlineNumber: "+880 9612-000000",
     footerText: "Bangladesh's leading destination for original spare parts and repair services.",
-    seoMetaTitle: "NovaMobile | Genuine Spare Parts",
+    seoMetaTitle: "mobilehubbd | Genuine Spare Parts",
     seoMetaDescription: "Original displays, batteries and repair parts in Bangladesh.",
     seoKeywords: "mobile parts, display, battery, repair, bangladesh",
   });
@@ -273,7 +273,7 @@ export default function GeneralSettingsPage() {
                     <Input
                       value={general.websiteName || ""}
                       onChange={(e) => setGeneral({ ...general, websiteName: e.target.value })}
-                      placeholder="e.g. NovaMobile"
+                      placeholder="e.g. mobilehubbd"
                       className="h-10 text-sm"
                     />
                   </div>
@@ -283,7 +283,7 @@ export default function GeneralSettingsPage() {
                     <Input
                       value={general.websiteTitle || ""}
                       onChange={(e) => setGeneral({ ...general, websiteTitle: e.target.value })}
-                      placeholder="e.g. NovaMobile - Smartphone Parts & Repair Shop"
+                      placeholder="e.g. mobilehubbd - Smartphone Parts & Repair Shop"
                       className="h-10 text-sm"
                     />
                   </div>
@@ -389,7 +389,7 @@ export default function GeneralSettingsPage() {
                     type="email"
                     value={general.emailAddress || ""}
                     onChange={(e) => setGeneral({ ...general, emailAddress: e.target.value })}
-                    placeholder="contact@novamobile.com"
+                    placeholder="contact@mobilehubbd.com"
                     className="h-10 text-sm"
                   />
                 </div>

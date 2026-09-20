@@ -41,6 +41,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { PosInvoiceModal } from "@/components/admin/pos/PosInvoiceModal";
+import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
 
 interface PosProductVariant {

@@ -131,18 +131,20 @@ export default function ServiceSalesReportPage() {
       toast.info("No technician data to export.");
       return;
     }
-    const exportData = globalReport.technicians.map((t: any) => ({
-      Technician: t.name,
-      EmployeeID: t.employeeId || "N/A",
-      Branch: t.branch?.name || "Global",
-      ServicesCount: t.servicesCount,
-      Collection: t.collection,
-      MaterialCost: t.materialCost,
-      GrossProfit: t.profit,
-      ProfitShareRate: `${t.profitSharePercentage}%`,
-      TechnicianProfitShare: t.profitShare,
-    }));
-    exportToCsv(exportData, `global_service_report_${new Date().toISOString().slice(0, 10)}.csv`);
+    const filename = `global_service_report_${new Date().toISOString().slice(0, 10)}.csv`;
+    const headers = ["Technician", "Employee ID", "Branch", "Services Count", "Collection", "Material Cost", "Gross Profit", "Profit Share %", "Technician Share"];
+    const rows = globalReport.technicians.map((t: any) => [
+      t.name,
+      t.employeeId || "N/A",
+      t.branch?.name || "Global",
+      t.servicesCount,
+      t.collection,
+      t.materialCost,
+      t.profit,
+      `${t.profitSharePercentage}%`,
+      t.profitShare,
+    ]);
+    exportToCsv(filename, headers, rows);
     toast.success("Global service report exported successfully.");
   };
 
@@ -151,17 +153,19 @@ export default function ServiceSalesReportPage() {
       toast.info("No servicing records to export.");
       return;
     }
-    const exportData = technicianReport.details.map((j: any) => ({
-      InvoiceNo: j.invoiceNo || j.order?.orderCode || "N/A",
-      Date: new Date(j.createdAt).toLocaleDateString("en-GB"),
-      Device: j.device,
-      Problems: j.problems ? JSON.stringify(j.problems) : "N/A",
-      TotalCost: j.totalCost,
-      MaterialCost: j.materialCost,
-      LaborProfit: j.profit,
-      Status: j.status,
-    }));
-    exportToCsv(exportData, `my_servicing_report_${new Date().toISOString().slice(0, 10)}.csv`);
+    const filename = `my_servicing_report_${new Date().toISOString().slice(0, 10)}.csv`;
+    const headers = ["Invoice No", "Date", "Device", "Problems", "Total Cost", "Material Cost", "Labor Profit", "Status"];
+    const rows = technicianReport.details.map((j: any) => [
+      j.invoiceNo || j.order?.orderCode || "N/A",
+      new Date(j.createdAt).toLocaleDateString("en-GB"),
+      j.device,
+      j.problems ? JSON.stringify(j.problems) : "N/A",
+      j.totalCost,
+      j.materialCost,
+      j.profit,
+      j.status,
+    ]);
+    exportToCsv(filename, headers, rows);
     toast.success("Servicing details exported successfully.");
   };
 

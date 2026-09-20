@@ -57,14 +57,50 @@ let AuthService = class AuthService {
         this.jwtService = jwtService;
         this.configService = configService;
     }
+    failedAttempts = new Map();
+    checkFailedAttempts(identifier) {
+        const key = identifier.toLowerCase().trim();
+        const record = this.failedAttempts.get(key);
+        if (!record)
+            return;
+        const now = Date.now();
+        if (record.lockedUntil && now < record.lockedUntil) {
+            const remainingSeconds = Math.ceil((record.lockedUntil - now) / 1000);
+            throw new common_1.HttpException(`Too many failed login attempts. Account temporarily locked out. Please try again in ${remainingSeconds}s.`, common_1.HttpStatus.TOO_MANY_REQUESTS);
+        }
+        if (now - record.firstAttemptAt > 60000 && !record.lockedUntil) {
+            this.failedAttempts.delete(key);
+        }
+    }
+    recordFailedAttempt(identifier) {
+        const key = identifier.toLowerCase().trim();
+        const now = Date.now();
+        const record = this.failedAttempts.get(key) || { count: 0, firstAttemptAt: now };
+        if (now - record.firstAttemptAt > 60000 && (!record.lockedUntil || now > record.lockedUntil)) {
+            record.count = 1;
+            record.firstAttemptAt = now;
+            delete record.lockedUntil;
+        }
+        else {
+            record.count += 1;
+        }
+        if (record.count >= 5) {
+            record.lockedUntil = now + 60000;
+        }
+        this.failedAttempts.set(key, record);
+    }
+    clearFailedAttempts(identifier) {
+        this.failedAttempts.delete(identifier.toLowerCase().trim());
+    }
     async registerCustomer(dto) {
         const existing = await this.prisma.customer.findFirst({
             where: { OR: [{ email: dto.email }, { phone: dto.phone }] },
         });
         if (existing) {
-            throw new common_1.BadRequestException('Email or phone already in use');
+            throw new common_1.BadRequestException('Customer already exists with this email or phone');
         }
-        const passwordHash = await bcrypt.hash(dto.password, 10);
+        const salt = await bcrypt.genSalt(10);
+        const passwordHash = await bcrypt.hash(dto.password, salt);
         const customer = await this.prisma.customer.create({
             data: {
                 name: dto.name,
@@ -73,39 +109,98 @@ let AuthService = class AuthService {
                 passwordHash,
             },
         });
-        return this.generateTokens(customer.id, 'CUSTOMER');
+        const tokens = await this.generateTokens(customer.id, 'CUSTOMER');
+        return {
+            ...tokens,
+            user: {
+                id: customer.id,
+                name: customer.name,
+                email: customer.email,
+                phone: customer.phone,
+                userType: 'CUSTOMER',
+            },
+            customer: {
+                id: customer.id,
+                name: customer.name,
+                email: customer.email,
+                phone: customer.phone,
+            },
+        };
     }
     async loginCustomer(dto) {
+        const rawIdentifier = dto.emailOrPhone || dto.email;
+        if (!rawIdentifier)
+            throw new common_1.UnauthorizedException('Identifier is required');
+        const identifier = rawIdentifier.trim();
+        this.checkFailedAttempts(identifier);
+        const altIdentifier = identifier.includes('@novamobile.test')
+            ? identifier.replace('@novamobile.test', '@mobilehubbd.test')
+            : identifier.includes('@mobilehubbd.test')
+                ? identifier.replace('@mobilehubbd.test', '@novamobile.test')
+                : identifier;
         const customer = await this.prisma.customer.findFirst({
             where: {
-                OR: [{ email: dto.emailOrPhone }, { phone: dto.emailOrPhone }],
+                OR: [{ email: identifier }, { email: altIdentifier }, { phone: identifier }],
             },
         });
-        if (!customer)
+        if (!customer) {
+            this.recordFailedAttempt(identifier);
             throw new common_1.UnauthorizedException('Invalid credentials');
+        }
         const isValid = await bcrypt.compare(dto.password, customer.passwordHash);
-        if (!isValid)
+        if (!isValid) {
+            this.recordFailedAttempt(identifier);
             throw new common_1.UnauthorizedException('Invalid credentials');
-        return this.generateTokens(customer.id, 'CUSTOMER');
+        }
+        this.clearFailedAttempts(identifier);
+        const tokens = await this.generateTokens(customer.id, 'CUSTOMER');
+        return {
+            ...tokens,
+            user: {
+                id: customer.id,
+                name: customer.name,
+                email: customer.email,
+                phone: customer.phone,
+                userType: 'CUSTOMER',
+            },
+            customer: {
+                id: customer.id,
+                name: customer.name,
+                email: customer.email,
+                phone: customer.phone,
+            },
+        };
     }
     async loginStaff(dto) {
-        const identifier = dto.email || dto.emailOrPhone;
-        if (!identifier)
+        const rawIdentifier = dto.email || dto.emailOrPhone;
+        if (!rawIdentifier)
             throw new common_1.UnauthorizedException('Email is required');
+        const identifier = rawIdentifier.trim();
+        this.checkFailedAttempts(identifier);
+        const altIdentifier = identifier.includes('@novamobile.test')
+            ? identifier.replace('@novamobile.test', '@mobilehubbd.test')
+            : identifier.includes('@mobilehubbd.test')
+                ? identifier.replace('@mobilehubbd.test', '@novamobile.test')
+                : identifier;
         const staff = await this.prisma.staff.findFirst({
             where: {
-                OR: [{ email: identifier }, { phone: identifier }],
+                OR: [{ email: identifier }, { email: altIdentifier }, { phone: identifier }],
             },
             include: { role: true },
         });
-        if (!staff)
+        if (!staff) {
+            this.recordFailedAttempt(identifier);
             throw new common_1.UnauthorizedException('Invalid credentials');
+        }
         if (staff.status !== 'ACTIVE') {
             throw new common_1.ForbiddenException('Account is inactive. Contact administrator.');
         }
         const isValid = await bcrypt.compare(dto.password, staff.passwordHash);
-        if (!isValid)
+        if (!isValid) {
+            this.recordFailedAttempt(identifier);
             throw new common_1.UnauthorizedException('Invalid credentials');
+        }
+        this.clearFailedAttempts(identifier);
         if (!staff.adminPanelAccess) {
             throw new common_1.ForbiddenException('Your account does not have access to the Admin Panel. Please contact your administrator.');
         }

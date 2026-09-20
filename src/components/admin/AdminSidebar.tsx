@@ -198,7 +198,7 @@ export function AdminSidebar() {
             <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center flex-shrink-0">
               <Building2 className="w-5 h-5" />
             </div>
-            <span className="font-bold text-slate-800 whitespace-nowrap text-lg">NovaMobile ERP</span>
+            <span className="font-bold text-slate-800 whitespace-nowrap text-lg">MobileHubBD ERP</span>
           </div>
         )}
         {isSidebarCollapsed && (

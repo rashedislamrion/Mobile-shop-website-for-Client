@@ -208,7 +208,7 @@ export class ThirdPartyConfigService {
           isActive: false,
           provider: 'Twilio',
           apiKey: '',
-          senderId: 'NovaMobile',
+          senderId: 'mobilehubbd',
           apiSecret: '',
         },
       });
@@ -245,7 +245,7 @@ export class ThirdPartyConfigService {
         isActive: dto.isActive || false,
         provider: dto.provider || 'Twilio',
         apiKey,
-        senderId: dto.senderId || 'NovaMobile',
+        senderId: dto.senderId || 'mobilehubbd',
         apiSecret,
       },
     });
@@ -265,8 +265,8 @@ export class ThirdPartyConfigService {
           username: '',
           password: '',
           encryption: 'tls',
-          fromName: 'NovaMobile',
-          fromEmail: 'noreply@novamobile.com',
+          fromName: 'mobilehubbd',
+          fromEmail: 'noreply@mobilehubbd.com',
         },
       });
     }
@@ -307,8 +307,8 @@ export class ThirdPartyConfigService {
         username: dto.username || null,
         password,
         encryption: dto.encryption || 'tls',
-        fromName: dto.fromName || 'NovaMobile',
-        fromEmail: dto.fromEmail || 'noreply@novamobile.com',
+        fromName: dto.fromName || 'mobilehubbd',
+        fromEmail: dto.fromEmail || 'noreply@mobilehubbd.com',
       },
     });
   }

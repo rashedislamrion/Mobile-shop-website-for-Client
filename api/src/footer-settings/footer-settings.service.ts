@@ -174,10 +174,10 @@ export class FooterSettingsService implements OnModuleInit {
       settings = await this.prisma.footerSettings.create({
         data: {
           supportPhone: '+880 1700-000000',
-          supportEmail: 'support@novamobile.com',
+          supportEmail: 'support@mobilehubbd.com',
           liveChatLink: 'https://wa.me/8801700000000',
           faqLink: '/faq',
-          copyrightText: '© 2026 NovaMobile Ltd. All rights reserved.',
+          copyrightText: '© 2026 mobilehubbd Ltd. All rights reserved.',
         },
       });
     }

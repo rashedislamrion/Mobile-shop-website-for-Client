@@ -20,7 +20,7 @@ export interface BlogItemProps {
 export function BlogCard({ blog }: { blog: BlogItemProps }) {
   const viewCount = blog.viewCount ?? (blog as any).views ?? 0;
   const isNew = viewCount < 1000;
-  const authorName = typeof blog.author === 'string' ? blog.author : blog.author?.name || 'NovaMobile';
+  const authorName = typeof blog.author === 'string' ? blog.author : blog.author?.name || 'MobileHubBD';
   const coverImg = blog.coverImage || (blog as any).featuredImage;
 
   return (

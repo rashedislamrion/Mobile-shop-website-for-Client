@@ -38,11 +38,11 @@ export interface BusinessSettings {
 
 export const mockBusinessSettings: BusinessSettings = {
   general: {
-    businessName: 'NovaMobile',
+    businessName: 'mobilehubbd',
     businessType: 'Mobile Phone & Accessories Retail',
     tradeLicenseNo: 'TRAD-12345678',
     businessPhone: '+880 1234 567890',
-    businessEmail: 'contact@novamobile.com',
+    businessEmail: 'contact@mobilehubbd.com',
     businessAddress: '123 Tech Avenue, Dhaka, Bangladesh',
   },
   branding: {

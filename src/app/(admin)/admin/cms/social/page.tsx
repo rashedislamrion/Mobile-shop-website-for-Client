@@ -166,7 +166,7 @@ export default function SocialLinksManagementPage() {
               <div className="flex-1">
                 <Input
                   type="url"
-                  placeholder={`https://${platform.label.toLowerCase()}.com/novamobile`}
+                  placeholder={`https://${platform.label.toLowerCase()}.com/mobilehubbd`}
                   value={links[platform.key]?.url || ""}
                   onChange={(e) => handleChange(platform.key, "url", e.target.value)}
                   className="bg-white"

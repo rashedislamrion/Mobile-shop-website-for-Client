@@ -26,7 +26,7 @@ export class SocialLinkService {
       return {
         id: `default-${platform}`,
         platform,
-        url: `https://${platform.toLowerCase()}.com/novamobile`,
+        url: `https://${platform.toLowerCase()}.com/mobilehubbd`,
         status: StaffStatus.ACTIVE,
       };
     });

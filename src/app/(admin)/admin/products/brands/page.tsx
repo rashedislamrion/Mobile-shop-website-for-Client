@@ -859,7 +859,7 @@ export default function BrandsPage() {
                     Meta Title
                   </Label>
                   <Input
-                    placeholder="e.g. Official Apple Store Bangladesh — NovaMobile"
+                    placeholder="e.g. Official Apple Store Bangladesh — mobilehubbd"
                     value={formMetaTitle}
                     onChange={(e) => setFormMetaTitle(e.target.value)}
                     className="bg-slate-50 border-slate-200 rounded-xl text-sm"

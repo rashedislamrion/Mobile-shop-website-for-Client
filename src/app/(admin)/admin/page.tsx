@@ -23,7 +23,9 @@ import {
   Activity,
   CheckCircle,
   Eye,
-  Store
+  Store,
+  Headphones,
+  Layers
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -51,14 +53,23 @@ import { ColoredStatCard } from "@/components/admin/ColoredStatCard";
 
 interface DashboardData {
   kpi: {
+    // 8 Core Fix Pass 24 Cards
+    totalSales: number;
+    totalPhoneSales: number;
+    totalDisplaySales: number;
+    totalGadgetSales: number;
+    totalServices: number;
+    totalProfit: number;
+    totalPurchase: number;
+    totalSupplierDue: number;
+
+    // Operational & Preserved Cards
     totalRevenue: number;
     netProductSales: number;
     netServiceRevenue: number;
     liquidSales: number;
     totalExpensePayroll: number;
-    totalPurchase: number;
     totalSupplierPayment: number;
-    totalSupplierDue: number;
     totalDueSales?: number;
     totalExpense?: number;
     payrollSalary?: number;
@@ -81,28 +92,38 @@ interface DashboardData {
 
 const getIconForKpi = (id: string) => {
   switch (id) {
+    case "tsales": return <Wallet className="w-5 h-5 text-emerald-600" />;
+    case "psales": return <Package className="w-5 h-5 text-blue-600" />;
+    case "dsales": return <Layers className="w-5 h-5 text-indigo-600" />;
+    case "gsales": return <Headphones className="w-5 h-5 text-amber-600" />;
+    case "serv": return <Wrench className="w-5 h-5 text-teal-600" />;
+    case "profit": return <TrendingUp className="w-5 h-5 text-emerald-600" />;
+    case "pur": return <ShoppingBag className="w-5 h-5 text-cyan-600" />;
+    case "sdue": return <AlertCircle className="w-5 h-5 text-rose-600" />;
     case "rev": return <Wallet className="w-5 h-5 text-emerald-600" />;
     case "prod": return <Package className="w-5 h-5 text-blue-600" />;
-    case "serv": return <Wrench className="w-5 h-5 text-indigo-600" />;
     case "liq": return <Banknote className="w-5 h-5 text-purple-600" />;
     case "exp": return <Receipt className="w-5 h-5 text-amber-600" />;
-    case "pur": return <ShoppingBag className="w-5 h-5 text-cyan-600" />;
     case "spay": return <HandCoins className="w-5 h-5 text-teal-600" />;
-    case "sdue": return <AlertCircle className="w-5 h-5 text-red-600" />;
     default: return <Wallet className="w-5 h-5" />;
   }
 };
 
 const getBgForKpi = (id: string) => {
   switch (id) {
+    case "tsales": return "bg-emerald-100";
+    case "psales": return "bg-blue-100";
+    case "dsales": return "bg-indigo-100";
+    case "gsales": return "bg-amber-100";
+    case "serv": return "bg-teal-100";
+    case "profit": return "bg-emerald-100";
+    case "pur": return "bg-cyan-100";
+    case "sdue": return "bg-rose-100";
     case "rev": return "bg-emerald-100";
     case "prod": return "bg-blue-100";
-    case "serv": return "bg-indigo-100";
     case "liq": return "bg-purple-100";
     case "exp": return "bg-amber-100";
-    case "pur": return "bg-cyan-100";
     case "spay": return "bg-teal-100";
-    case "sdue": return "bg-red-100";
     default: return "bg-gray-100";
   }
 };
@@ -140,14 +161,20 @@ export default function AdminDashboardPage() {
   }, [loadDashboard]);
 
   const kpi = data?.kpi || {
+    totalSales: 0,
+    totalPhoneSales: 0,
+    totalDisplaySales: 0,
+    totalGadgetSales: 0,
+    totalServices: 0,
+    totalProfit: 0,
+    totalPurchase: 0,
+    totalSupplierDue: 0,
     totalRevenue: 0,
     netProductSales: 0,
     netServiceRevenue: 0,
     liquidSales: 0,
     totalExpensePayroll: 0,
-    totalPurchase: 0,
     totalSupplierPayment: 0,
-    totalSupplierDue: 0,
     totalDueSales: 0,
     totalExpense: 0,
     payrollSalary: 0,
@@ -191,182 +218,157 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
-      {/* ROW 1: KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="rounded-xl border-none shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-4 mb-4">
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("rev")}`}>
-                {getIconForKpi("rev")}
+      {/* CORE BUSINESS PERFORMANCE (FIX PASS 24) */}
+      <div className="space-y-4">
+        {/* ROW 1: REVENUE BREAKDOWN */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card className="rounded-xl border-none shadow-sm bg-gradient-to-br from-emerald-50/50 to-white">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-4 mb-4">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("tsales")}`}>
+                  {getIconForKpi("tsales")}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-600">Total Sales</p>
+                  <h3 className="text-2xl font-extrabold text-slate-800">৳ {kpi.totalSales.toLocaleString()}</h3>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-medium text-slate-500">Total Revenue</p>
-                <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.totalRevenue.toLocaleString()}</h3>
+              <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                <span className="font-semibold text-emerald-600">Headline</span>
+                <span>• Phone + Display + Gadget + Services</span>
               </div>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs text-slate-400">
-              <span className="font-semibold text-emerald-600">Active</span>
-              <span>• Product & Service gross</span>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card className="rounded-xl border-none shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-4 mb-4">
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("prod")}`}>
-                {getIconForKpi("prod")}
+          <Card className="rounded-xl border-none shadow-sm">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-4 mb-4">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("psales")}`}>
+                  {getIconForKpi("psales")}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-600">Total Phone Sales</p>
+                  <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.totalPhoneSales.toLocaleString()}</h3>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-medium text-slate-500">Net Product Sales</p>
-                <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.netProductSales.toLocaleString()}</h3>
+              <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                <span className="font-semibold text-blue-600">Smartphones</span>
+                <span>• IMEI & Phone units sold</span>
               </div>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs text-slate-400">
-              <span className="font-semibold text-blue-600">Orders</span>
-              <span>• Excl. returns & cancelled</span>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card className="rounded-xl border-none shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-4 mb-4">
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("serv")}`}>
-                {getIconForKpi("serv")}
+          <Card className="rounded-xl border-none shadow-sm">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-4 mb-4">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("dsales")}`}>
+                  {getIconForKpi("dsales")}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-600">Total Display Sales</p>
+                  <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.totalDisplaySales.toLocaleString()}</h3>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-medium text-slate-500">Net Service Revenue</p>
-                <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.netServiceRevenue.toLocaleString()}</h3>
+              <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                <span className="font-semibold text-indigo-600">Spare Parts</span>
+                <span>• Displays, OLEDs & parts</span>
               </div>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs text-slate-400">
-              <span className="font-semibold text-indigo-600">Repairs</span>
-              <span>• Service charges realized</span>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card className="rounded-xl border-none shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-4 mb-4">
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("liq")}`}>
-                {getIconForKpi("liq")}
+          <Card className="rounded-xl border-none shadow-sm">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-4 mb-4">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("gsales")}`}>
+                  {getIconForKpi("gsales")}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-600">Total Gadget Sales</p>
+                  <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.totalGadgetSales.toLocaleString()}</h3>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-medium text-slate-500">Liquid Sales</p>
-                <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.liquidSales.toLocaleString()}</h3>
+              <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                <span className="font-semibold text-amber-600">Accessories</span>
+                <span>• Audio, gadgets & wearables</span>
               </div>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs text-slate-400">
-              <span className="font-semibold text-purple-600">Realized</span>
-              <span>• Paid collections</span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            </CardContent>
+          </Card>
+        </div>
 
-      {/* ROW 2: KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="rounded-xl border-none shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-4 mb-4">
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("exp")}`}>
-                {getIconForKpi("exp")}
+        {/* ROW 2: SERVICES, PROFIT, PURCHASES & SUPPLIER DUES */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card className="rounded-xl border-none shadow-sm">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-4 mb-4">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("serv")}`}>
+                  {getIconForKpi("serv")}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-600">Total Services</p>
+                  <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.totalServices.toLocaleString()}</h3>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-medium text-slate-500">Total Expense + Payroll</p>
-                <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.totalExpensePayroll.toLocaleString()}</h3>
+              <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                <span className="font-semibold text-teal-600">Servicing</span>
+                <span>• Realized repair jobs</span>
               </div>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs text-slate-400">
-              <span className="font-semibold text-amber-600">Operational</span>
-              <span>• Paid outflows</span>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card className="rounded-xl border-none shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-4 mb-4">
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("pur")}`}>
-                {getIconForKpi("pur")}
+          <Card className="rounded-xl border-none shadow-sm bg-gradient-to-br from-emerald-50/40 to-white">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-4 mb-4">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("profit")}`}>
+                  {getIconForKpi("profit")}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-600">Total Profit</p>
+                  <h3 className="text-2xl font-bold text-emerald-700">৳ {kpi.totalProfit.toLocaleString()}</h3>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-medium text-slate-500">Total Purchase</p>
-                <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.totalPurchase.toLocaleString()}</h3>
+              <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                <span className="font-semibold text-emerald-600">Live Margin</span>
+                <span>• Sales − COGS − Service materials</span>
               </div>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs text-slate-400">
-              <span className="font-semibold text-cyan-600">Procurement</span>
-              <span>• Inventory orders</span>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card className="rounded-xl border-none shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-4 mb-4">
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("spay")}`}>
-                {getIconForKpi("spay")}
+          <Card className="rounded-xl border-none shadow-sm">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-4 mb-4">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("pur")}`}>
+                  {getIconForKpi("pur")}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-600">Total Purchase</p>
+                  <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.totalPurchase.toLocaleString()}</h3>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-medium text-slate-500">Total Supplier Payment</p>
-                <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.totalSupplierPayment.toLocaleString()}</h3>
+              <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                <span className="font-semibold text-cyan-600">Procurement</span>
+                <span>• Inward inventory intake</span>
               </div>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs text-slate-400">
-              <span className="font-semibold text-teal-600">Disbursed</span>
-              <span>• Settled supplier payments</span>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        <Card className="rounded-xl border-none shadow-sm">
-          <CardContent className="p-5">
-            <div className="flex items-center gap-4 mb-4">
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("sdue")}`}>
-                {getIconForKpi("sdue")}
+          <Card className="rounded-xl border-none shadow-sm">
+            <CardContent className="p-5">
+              <div className="flex items-center gap-4 mb-4">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${getBgForKpi("sdue")}`}>
+                  {getIconForKpi("sdue")}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-600">Total Supplier Due</p>
+                  <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.totalSupplierDue.toLocaleString()}</h3>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-medium text-slate-500">Total Supplier Due</p>
-                <h3 className="text-2xl font-bold text-slate-800">৳ {kpi.totalSupplierDue.toLocaleString()}</h3>
+              <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                <span className="font-semibold text-rose-600">Payables</span>
+                <span>• Outstanding balance as of now</span>
               </div>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs text-slate-400">
-              <span className="font-semibold text-rose-600">Payable</span>
-              <span>• Outstanding supplier balances</span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* ROW 3: FIX PASS 20 SUMMARY BOXES */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <ColoredStatCard
-          icon={<AlertCircle className="w-5 h-5" />}
-          label="Total Due Sales"
-          value={`৳ ${(kpi.totalDueSales ?? 0).toLocaleString()}`}
-          colorTint="orange"
-        />
-        <ColoredStatCard
-          icon={<HandCoins className="w-5 h-5" />}
-          label="Total Supplier Payment"
-          value={`৳ ${(kpi.totalSupplierPayment ?? 0).toLocaleString()}`}
-          colorTint="teal"
-        />
-        <ColoredStatCard
-          icon={<Receipt className="w-5 h-5" />}
-          label="Total Expense"
-          value={`৳ ${(kpi.totalExpense ?? 0).toLocaleString()}`}
-          colorTint="red"
-        />
-        <ColoredStatCard
-          icon={<Banknote className="w-5 h-5" />}
-          label="Payroll + Salary"
-          value={`৳ ${(kpi.payrollSalary ?? 0).toLocaleString()}`}
-          colorTint="purple"
-        />
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       {/* ORDER STATUS OVERVIEW */}
@@ -387,6 +389,66 @@ export default function AdminDashboardPage() {
           ))}
         </CardContent>
       </Card>
+
+      {/* OPERATIONAL CASH FLOW & FINANCIAL AUDIT CARDS (PRESERVED FROM PRIOR PASSES) */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h4 className="text-sm font-bold text-slate-500 uppercase tracking-wider">Operational & Cash Flow Audit Metrics</h4>
+          <span className="text-xs text-slate-400">Preserved for reconciliation</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <ColoredStatCard
+            icon={<Wallet className="w-5 h-5" />}
+            label="Total Revenue"
+            value={`৳ ${kpi.totalRevenue.toLocaleString()}`}
+            colorTint="green"
+          />
+          <ColoredStatCard
+            icon={<Banknote className="w-5 h-5" />}
+            label="Liquid Sales (Cash In)"
+            value={`৳ ${kpi.liquidSales.toLocaleString()}`}
+            colorTint="purple"
+          />
+          <ColoredStatCard
+            icon={<Package className="w-5 h-5" />}
+            label="Net Product Sales"
+            value={`৳ ${kpi.netProductSales.toLocaleString()}`}
+            colorTint="blue"
+          />
+          <ColoredStatCard
+            icon={<Wrench className="w-5 h-5" />}
+            label="Net Service Revenue"
+            value={`৳ ${kpi.netServiceRevenue.toLocaleString()}`}
+            colorTint="teal"
+          />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <ColoredStatCard
+            icon={<AlertCircle className="w-5 h-5" />}
+            label="Total Due Sales"
+            value={`৳ ${(kpi.totalDueSales ?? 0).toLocaleString()}`}
+            colorTint="orange"
+          />
+          <ColoredStatCard
+            icon={<HandCoins className="w-5 h-5" />}
+            label="Total Supplier Payment"
+            value={`৳ ${(kpi.totalSupplierPayment ?? 0).toLocaleString()}`}
+            colorTint="teal"
+          />
+          <ColoredStatCard
+            icon={<Receipt className="w-5 h-5" />}
+            label="Total Expense + Payroll"
+            value={`৳ ${(kpi.totalExpensePayroll ?? 0).toLocaleString()}`}
+            colorTint="red"
+          />
+          <ColoredStatCard
+            icon={<Banknote className="w-5 h-5" />}
+            label="Payroll + Salary"
+            value={`৳ ${(kpi.payrollSalary ?? 0).toLocaleString()}`}
+            colorTint="purple"
+          />
+        </div>
+      </div>
 
       {/* SUMMARY CHART */}
       <Card className="rounded-xl border-none shadow-sm">

@@ -41,7 +41,7 @@ export default function PrivacyPage() {
         ) : (
           <>
             <p className="text-slate-600 leading-relaxed mb-6">
-              At NovaMobile, we are committed to safeguarding the privacy and security of our customers and site visitors. This Privacy Policy details how we collect, store, and utilize your personal information when you visit our store or place an order.
+              At mobilehubbd, we are committed to safeguarding the privacy and security of our customers and site visitors. This Privacy Policy details how we collect, store, and utilize your personal information when you visit our store or place an order.
             </p>
             
             <h3 className="text-xl font-bold text-slate-800 mt-8 mb-4">1. Information We Collect</h3>
@@ -51,7 +51,7 @@ export default function PrivacyPage() {
             
             <h3 className="text-xl font-bold text-slate-800 mt-8 mb-4">2. Payment Data Security</h3>
             <p className="text-slate-600 leading-relaxed mb-6">
-              NovaMobile never stores your credit card, debit card, or mobile banking PINs on our servers. All digital payments are processed through secure, bank-grade encrypted gateways (bKash and SSLCommerz).
+              mobilehubbd never stores your credit card, debit card, or mobile banking PINs on our servers. All digital payments are processed through secure, bank-grade encrypted gateways (bKash and SSLCommerz).
             </p>
           </>
         )}

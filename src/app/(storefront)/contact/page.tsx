@@ -98,7 +98,7 @@ export default function ContactPage() {
                 </div>
                 <div>
                   <p className="text-xs text-slate-400 font-semibold uppercase">Email</p>
-                  <p className="text-sm font-bold text-white">{footerSettings?.supportEmail || "support@novamobile.com"}</p>
+                  <p className="text-sm font-bold text-white">{footerSettings?.supportEmail || "support@mobilehubbd.com"}</p>
                 </div>
               </div>
 

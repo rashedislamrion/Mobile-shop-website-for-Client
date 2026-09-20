@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ForbiddenException, BadRequestException, NotFoundException, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -19,15 +19,62 @@ export class AuthService {
     private configService: ConfigService,
   ) {}
 
+  // Brute-force rate limiting: 5 failed attempts locks out for 60 seconds
+  private failedAttempts = new Map<string, { count: number; firstAttemptAt: number; lockedUntil?: number }>();
+
+  private checkFailedAttempts(identifier: string) {
+    const key = identifier.toLowerCase().trim();
+    const record = this.failedAttempts.get(key);
+    if (!record) return;
+
+    const now = Date.now();
+    if (record.lockedUntil && now < record.lockedUntil) {
+      const remainingSeconds = Math.ceil((record.lockedUntil - now) / 1000);
+      throw new HttpException(
+        `Too many failed login attempts. Account temporarily locked out. Please try again in ${remainingSeconds}s.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    if (now - record.firstAttemptAt > 60000 && !record.lockedUntil) {
+      this.failedAttempts.delete(key);
+    }
+  }
+
+  private recordFailedAttempt(identifier: string) {
+    const key = identifier.toLowerCase().trim();
+    const now = Date.now();
+    const record = this.failedAttempts.get(key) || { count: 0, firstAttemptAt: now };
+
+    if (now - record.firstAttemptAt > 60000 && (!record.lockedUntil || now > record.lockedUntil)) {
+      record.count = 1;
+      record.firstAttemptAt = now;
+      delete record.lockedUntil;
+    } else {
+      record.count += 1;
+    }
+
+    if (record.count >= 5) {
+      record.lockedUntil = now + 60000;
+    }
+
+    this.failedAttempts.set(key, record);
+  }
+
+  private clearFailedAttempts(identifier: string) {
+    this.failedAttempts.delete(identifier.toLowerCase().trim());
+  }
+
   async registerCustomer(dto: RegisterCustomerDto) {
     const existing = await this.prisma.customer.findFirst({
       where: { OR: [{ email: dto.email }, { phone: dto.phone }] },
     });
     if (existing) {
-      throw new BadRequestException('Email or phone already in use');
+      throw new BadRequestException('Customer already exists with this email or phone');
     }
 
-    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(dto.password, salt);
     const customer = await this.prisma.customer.create({
       data: {
         name: dto.name,
@@ -37,43 +84,112 @@ export class AuthService {
       },
     });
 
-    return this.generateTokens(customer.id, 'CUSTOMER');
+    const tokens = await this.generateTokens(customer.id, 'CUSTOMER');
+    return {
+      ...tokens,
+      user: {
+        id: customer.id,
+        name: customer.name,
+        email: customer.email,
+        phone: customer.phone,
+        userType: 'CUSTOMER',
+      },
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        email: customer.email,
+        phone: customer.phone,
+      },
+    };
   }
 
   async loginCustomer(dto: LoginDto) {
+    const rawIdentifier = dto.emailOrPhone || dto.email;
+    if (!rawIdentifier) throw new UnauthorizedException('Identifier is required');
+    const identifier = rawIdentifier.trim();
+    this.checkFailedAttempts(identifier);
+
+    const altIdentifier = identifier.includes('@novamobile.test')
+      ? identifier.replace('@novamobile.test', '@mobilehubbd.test')
+      : identifier.includes('@mobilehubbd.test')
+      ? identifier.replace('@mobilehubbd.test', '@novamobile.test')
+      : identifier;
+
     const customer = await this.prisma.customer.findFirst({
       where: {
-        OR: [{ email: dto.emailOrPhone }, { phone: dto.emailOrPhone }],
+        OR: [{ email: identifier }, { email: altIdentifier }, { phone: identifier }],
       },
     });
 
-    if (!customer) throw new UnauthorizedException('Invalid credentials');
+    if (!customer) {
+      this.recordFailedAttempt(identifier);
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
     const isValid = await bcrypt.compare(dto.password, customer.passwordHash);
-    if (!isValid) throw new UnauthorizedException('Invalid credentials');
+    if (!isValid) {
+      this.recordFailedAttempt(identifier);
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
-    return this.generateTokens(customer.id, 'CUSTOMER');
+    this.clearFailedAttempts(identifier);
+
+    const tokens = await this.generateTokens(customer.id, 'CUSTOMER');
+    return {
+      ...tokens,
+      user: {
+        id: customer.id,
+        name: customer.name,
+        email: customer.email,
+        phone: customer.phone,
+        userType: 'CUSTOMER',
+      },
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        email: customer.email,
+        phone: customer.phone,
+      },
+    };
   }
 
   async loginStaff(dto: LoginDto) {
-    const identifier = dto.email || dto.emailOrPhone;
-    if (!identifier) throw new UnauthorizedException('Email is required');
+    const rawIdentifier = dto.email || dto.emailOrPhone;
+    if (!rawIdentifier) throw new UnauthorizedException('Email is required');
+
+    const identifier = rawIdentifier.trim();
+    this.checkFailedAttempts(identifier);
+
+    // Support both @mobilehubbd.test and @novamobile.test for seamless backward/forward compatibility
+    const altIdentifier = identifier.includes('@novamobile.test')
+      ? identifier.replace('@novamobile.test', '@mobilehubbd.test')
+      : identifier.includes('@mobilehubbd.test')
+      ? identifier.replace('@mobilehubbd.test', '@novamobile.test')
+      : identifier;
 
     const staff = await this.prisma.staff.findFirst({
       where: {
-        OR: [{ email: identifier }, { phone: identifier }],
+        OR: [{ email: identifier }, { email: altIdentifier }, { phone: identifier }],
       },
       include: { role: true },
     });
 
-    if (!staff) throw new UnauthorizedException('Invalid credentials');
+    if (!staff) {
+      this.recordFailedAttempt(identifier);
+      throw new UnauthorizedException('Invalid credentials');
+    }
 
     if (staff.status !== 'ACTIVE') {
       throw new ForbiddenException('Account is inactive. Contact administrator.');
     }
 
     const isValid = await bcrypt.compare(dto.password, staff.passwordHash);
-    if (!isValid) throw new UnauthorizedException('Invalid credentials');
+    if (!isValid) {
+      this.recordFailedAttempt(identifier);
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    this.clearFailedAttempts(identifier);
 
     if (!staff.adminPanelAccess) {
       throw new ForbiddenException('Your account does not have access to the Admin Panel. Please contact your administrator.');

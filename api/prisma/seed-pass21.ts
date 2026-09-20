@@ -128,12 +128,12 @@ async function main() {
   // Demo Account 1: Global Admin
   if (adminRole) {
     await prisma.staff.upsert({
-      where: { email: 'demo.admin@novamobile.test' },
+      where: { email: 'demo.admin@mobilehubbd.test' },
       update: { passwordHash, roleId: adminRole.id, status: StaffStatus.ACTIVE },
       create: {
         employeeId: 'DEMO-ADM-01',
         name: 'Demo Global Admin',
-        email: 'demo.admin@novamobile.test',
+        email: 'demo.admin@mobilehubbd.test',
         phone: '+8801799000001',
         passwordHash,
         roleId: adminRole.id,
@@ -146,12 +146,12 @@ async function main() {
   // Demo Account 2: Branch Admin
   if (branchAdminRole && dhakaBranch) {
     await prisma.staff.upsert({
-      where: { email: 'demo.branchadmin@novamobile.test' },
+      where: { email: 'demo.branchadmin@mobilehubbd.test' },
       update: { passwordHash, roleId: branchAdminRole.id, branchId: dhakaBranch.id, status: StaffStatus.ACTIVE },
       create: {
         employeeId: 'DEMO-BADM-01',
         name: 'Demo Branch Admin (Dhaka)',
-        email: 'demo.branchadmin@novamobile.test',
+        email: 'demo.branchadmin@mobilehubbd.test',
         phone: '+8801799000002',
         passwordHash,
         roleId: branchAdminRole.id,
@@ -165,7 +165,7 @@ async function main() {
   // Demo Account 3: Technician with 25% profit share
   if (technicianRole && dhakaBranch) {
     await prisma.staff.upsert({
-      where: { email: 'demo.technician@novamobile.test' },
+      where: { email: 'demo.technician@mobilehubbd.test' },
       update: {
         passwordHash,
         roleId: technicianRole.id,
@@ -177,7 +177,7 @@ async function main() {
       create: {
         employeeId: 'DEMO-TECH-01',
         name: 'Demo Technician (Dhaka)',
-        email: 'demo.technician@novamobile.test',
+        email: 'demo.technician@mobilehubbd.test',
         phone: '+8801799000003',
         passwordHash,
         roleId: technicianRole.id,
@@ -193,12 +193,12 @@ async function main() {
   // Demo Account 4: Custom Role "Inventory Auditor"
   if (auditorRole && dhakaBranch) {
     await prisma.staff.upsert({
-      where: { email: 'demo.auditor@novamobile.test' },
+      where: { email: 'demo.auditor@mobilehubbd.test' },
       update: { passwordHash, roleId: auditorRole.id, branchId: dhakaBranch.id, status: StaffStatus.ACTIVE },
       create: {
         employeeId: 'DEMO-AUD-01',
         name: 'Demo Inventory Auditor',
-        email: 'demo.auditor@novamobile.test',
+        email: 'demo.auditor@mobilehubbd.test',
         phone: '+8801799000004',
         passwordHash,
         roleId: auditorRole.id,

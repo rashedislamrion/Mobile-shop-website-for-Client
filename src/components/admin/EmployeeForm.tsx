@@ -573,7 +573,7 @@ export function EmployeeForm({ initialData, isEdit }: EmployeeFormProps) {
                       <FormControl>
                         <Input
                           type="password"
-                          placeholder={isEdit ? "Leave empty to retain existing" : "Default: Temp@123456"}
+                          placeholder={isEdit ? "Leave empty to retain existing" : "Set temporary password"}
                           {...field}
                           className="h-10"
                         />

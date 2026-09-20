@@ -54,8 +54,8 @@ export default function ThirdPartyConfigPage() {
     port: 587,
     username: "",
     password: "",
-    fromEmail: "noreply@novamobile.com",
-    fromName: "NovaMobile",
+    fromEmail: "noreply@mobilehubbd.com",
+    fromName: "mobilehubbd",
     isActive: false,
   });
 
@@ -471,7 +471,7 @@ export default function ThirdPartyConfigPage() {
                 <Input
                   value={sms.senderId || ""}
                   onChange={(e) => setSms({ ...sms, senderId: e.target.value })}
-                  placeholder="e.g. NovaMobile"
+                  placeholder="e.g. mobilehubbd"
                 />
               </div>
 
@@ -517,7 +517,7 @@ export default function ThirdPartyConfigPage() {
                 <Input
                   value={mail.username || ""}
                   onChange={(e) => setMail({ ...mail, username: e.target.value })}
-                  placeholder="contact@novamobile.com"
+                  placeholder="contact@mobilehubbd.com"
                 />
               </div>
 
@@ -546,7 +546,7 @@ export default function ThirdPartyConfigPage() {
                   <Input
                     value={mail.fromEmail || ""}
                     onChange={(e) => setMail({ ...mail, fromEmail: e.target.value })}
-                    placeholder="noreply@novamobile.com"
+                    placeholder="noreply@mobilehubbd.com"
                   />
                 </div>
                 <div className="space-y-1.5">
@@ -554,7 +554,7 @@ export default function ThirdPartyConfigPage() {
                   <Input
                     value={mail.fromName || ""}
                     onChange={(e) => setMail({ ...mail, fromName: e.target.value })}
-                    placeholder="NovaMobile"
+                    placeholder="mobilehubbd"
                   />
                 </div>
               </div>
@@ -582,7 +582,7 @@ export default function ThirdPartyConfigPage() {
                 <Input
                   value={firebase.projectId || ""}
                   onChange={(e) => setFirebase({ ...firebase, projectId: e.target.value })}
-                  placeholder="novamobile-fcm-project"
+                  placeholder="mobilehubbd-fcm-project"
                 />
               </div>
 

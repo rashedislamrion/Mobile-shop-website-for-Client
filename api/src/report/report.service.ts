@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { OrderStatus, PayrollStatus, ExpenseStatus, Prisma, PaymentStatus, WalletTxnType, SaleType, StaffStatus } from '@prisma/client';
+import { OrderStatus, PayrollStatus, ExpenseStatus, Prisma, PaymentStatus, WalletTxnType, SaleType, StaffStatus, PurchaseOrderStatus } from '@prisma/client';
 
 @Injectable()
 export class ReportService {
@@ -2084,7 +2084,60 @@ export class ReportService {
     };
   }
 
-  // ============================= DASHBOARD DATA =============================
+  // ============================= FIX PASS 24: DASHBOARD DATA =============================
+
+  private parsePeriodToDateRange(period?: string, dateFrom?: string, dateTo?: string): { gte?: Date; lte?: Date; hasFilter: boolean } {
+    if (dateFrom || dateTo) {
+      const filter: { gte?: Date; lte?: Date } = {};
+      if (dateFrom) filter.gte = new Date(dateFrom);
+      if (dateTo) {
+        const to = new Date(dateTo);
+        to.setHours(23, 59, 59, 999);
+        filter.lte = to;
+      }
+      return { ...filter, hasFilter: true };
+    }
+
+    if (!period || period === 'ALL' || period === 'All Time' || period === 'All Outlets') {
+      return { hasFilter: false };
+    }
+
+    const now = new Date();
+    const normalized = period.toLowerCase().trim().replace(/[-_]/g, ' ');
+
+    if (normalized === 'today') {
+      const gte = new Date(now);
+      gte.setHours(0, 0, 0, 0);
+      const lte = new Date(now);
+      lte.setHours(23, 59, 59, 999);
+      return { gte, lte, hasFilter: true };
+    }
+
+    if (normalized === 'this week') {
+      const gte = new Date(now);
+      const day = gte.getDay(); // 0 is Sunday
+      const diff = gte.getDate() - day + (day === 0 ? -6 : 1);
+      gte.setDate(diff);
+      gte.setHours(0, 0, 0, 0);
+      const lte = new Date(now);
+      lte.setHours(23, 59, 59, 999);
+      return { gte, lte, hasFilter: true };
+    }
+
+    if (normalized === 'this month') {
+      const gte = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+      const lte = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      return { gte, lte, hasFilter: true };
+    }
+
+    if (normalized === 'this year') {
+      const gte = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+      const lte = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999);
+      return { gte, lte, hasFilter: true };
+    }
+
+    return { hasFilter: false };
+  }
 
   async getDashboardData(query?: {
     branch?: string;
@@ -2093,15 +2146,12 @@ export class ReportService {
     dateTo?: string;
   }) {
     const branchId = await this.resolveBranchId(query?.branch);
+    const parsedRange = this.parsePeriodToDateRange(query?.period, query?.dateFrom, query?.dateTo);
 
     const dateFilter: { gte?: Date; lte?: Date } = {};
-    if (query?.dateFrom) dateFilter.gte = new Date(query.dateFrom);
-    if (query?.dateTo) {
-      const to = new Date(query.dateTo);
-      to.setHours(23, 59, 59, 999);
-      dateFilter.lte = to;
-    }
-    const hasDateFilter = Boolean(query?.dateFrom || query?.dateTo);
+    if (parsedRange.gte) dateFilter.gte = parsedRange.gte;
+    if (parsedRange.lte) dateFilter.lte = parsedRange.lte;
+    const hasDateFilter = parsedRange.hasFilter;
 
     const orderWhere: Prisma.OrderWhereInput = {
       ...(branchId ? { branchId } : {}),
@@ -2109,7 +2159,14 @@ export class ReportService {
     };
 
     const serviceJobWhere: Prisma.ServiceJobWhereInput = {
-      ...(branchId ? { order: { branchId } } : {}),
+      ...(branchId
+        ? {
+            OR: [
+              { order: { branchId } },
+              { technician: { branchId } },
+            ],
+          }
+        : {}),
       ...(hasDateFilter ? { createdAt: dateFilter } : {}),
     };
 
@@ -2118,9 +2175,15 @@ export class ReportService {
       ...(hasDateFilter ? { createdAt: dateFilter } : {}),
     };
 
+    const payrollWhere: Prisma.PayrollWhereInput = {
+      ...(branchId ? { staff: { branchId } } : {}),
+      ...(hasDateFilter ? { createdAt: dateFilter } : {}),
+    };
+
     const purchaseWhere: Prisma.PurchaseOrderWhereInput = {
       ...(branchId ? { branchId } : {}),
       ...(hasDateFilter ? { createdAt: dateFilter } : {}),
+      status: { notIn: [PurchaseOrderStatus.CANCELLED, PurchaseOrderStatus.DRAFT] },
     };
 
     const [
@@ -2129,29 +2192,61 @@ export class ReportService {
       expenses,
       payrolls,
       purchaseOrders,
-      recentOrders,
-      topOrderItems,
+      openSupplierPOs,
       allCustomers,
     ] = await Promise.all([
       this.prisma.order.findMany({
         where: orderWhere,
-        select: {
-          id: true,
-          totalAmount: true,
-          paidAmount: true,
-          dueAmount: true,
-          discountAmount: true,
-          status: true,
-          createdAt: true,
-          branchId: true,
+        include: {
+          items: {
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  productCategory: true,
+                  productType: true,
+                  costPrice: true,
+                  buyingPrice: true,
+                  regularPrice: true,
+                  images: { take: 1, select: { url: true } },
+                  category: { select: { id: true, name: true } },
+                },
+              },
+              variant: {
+                select: {
+                  id: true,
+                  buyingPrice: true,
+                  price: true,
+                },
+              },
+              phoneUnits: {
+                select: {
+                  id: true,
+                  buyingPrice: true,
+                  sellingPrice: true,
+                  status: true,
+                },
+              },
+            },
+          },
+          customer: { select: { id: true, name: true, phone: true, email: true } },
+          branch: { select: { id: true, name: true } },
         },
+        orderBy: { createdAt: 'desc' },
       }),
       this.prisma.serviceJob.findMany({
         where: serviceJobWhere,
         select: {
           id: true,
-          serviceCharge: true,
           status: true,
+          finalAmount: true,
+          totalBill: true,
+          serviceCharge: true,
+          laborCost: true,
+          materialCost: true,
+          paidAmount: true,
+          dueAmount: true,
           createdAt: true,
         },
       }),
@@ -2165,10 +2260,7 @@ export class ReportService {
         },
       }),
       this.prisma.payroll.findMany({
-        where: {
-          ...(branchId ? { staff: { branchId } } : {}),
-          ...(hasDateFilter ? { createdAt: dateFilter } : {}),
-        },
+        where: payrollWhere,
         select: {
           id: true,
           netSalary: true,
@@ -2187,28 +2279,14 @@ export class ReportService {
           createdAt: true,
         },
       }),
-      this.prisma.order.findMany({
-        where: orderWhere,
-        orderBy: { createdAt: 'desc' },
-        take: 5,
-        include: {
-          customer: { select: { id: true, name: true, phone: true, email: true } },
-          branch: { select: { id: true, name: true } },
-        },
-      }),
-      this.prisma.orderItem.findMany({
+      // Supplier Due is a running balance as of now (unaffected by historical date filter)
+      this.prisma.purchaseOrder.findMany({
         where: {
-          order: orderWhere,
+          ...(branchId ? { branchId } : {}),
+          status: { notIn: [PurchaseOrderStatus.CANCELLED, PurchaseOrderStatus.DRAFT] },
+          dueAmount: { gt: 0 },
         },
-        include: {
-          product: {
-            include: {
-              category: { select: { name: true } },
-              images: { take: 1 },
-              variants: { select: { stock: true } },
-            },
-          },
-        },
+        select: { dueAmount: true },
       }),
       this.prisma.customer.findMany({
         where: branchId ? { orders: { some: { branchId } } } : {},
@@ -2222,17 +2300,155 @@ export class ReportService {
       }),
     ]);
 
-    // Financial KPI calculations
-    const netProductSales = allOrders
-      .filter((o) => o.status !== OrderStatus.CANCELLED && o.status !== OrderStatus.RETURNED)
-      .reduce((sum, o) => sum + Number(o.totalAmount), 0);
+    // ============================= 1. REVENUE CARDS & COGS =============================
+    let totalPhoneSales = 0;
+    let totalPhoneCOGS = 0;
+    let totalDisplaySales = 0;
+    let totalDisplayCOGS = 0;
+    let totalGadgetSales = 0;
+    let totalGadgetCOGS = 0;
 
-    const netServiceRevenue = serviceJobs
-      .reduce((sum, j) => sum + Number(j.serviceCharge), 0);
+    // Filter valid completed product orders (excluding cancelled, returned, and pure repair orders)
+    const completedProductOrders = allOrders.filter(
+      (o) =>
+        o.status !== OrderStatus.CANCELLED &&
+        o.status !== OrderStatus.RETURNED &&
+        o.saleType !== SaleType.DIAGNOSING,
+    );
 
-    const totalRevenue = netProductSales + netServiceRevenue;
+    for (const order of completedProductOrders) {
+      const orderSubtotal = Number(order.subtotal || 0);
+      const orderDiscount = Number(order.discountAmount || 0);
+      const discountRatio = orderSubtotal > 0 && orderDiscount > 0 ? orderDiscount / orderSubtotal : 0;
 
-    const liquidSales = allOrders.reduce((sum, o) => sum + Number(o.paidAmount || 0), 0) + netServiceRevenue;
+      for (const item of order.items) {
+        const grossLineTotal = Number(item.lineTotal || 0);
+        const netLineTotal = Math.max(0, Math.round((grossLineTotal * (1 - discountRatio)) * 100) / 100);
+
+        const p = item.product;
+        const rawCat = (p?.productCategory || '').toUpperCase();
+        const rawType = (p?.productType || '').toLowerCase();
+        const catName = (p?.category?.name || '').toLowerCase();
+
+        // 1. Phone Category: IMEI tracking / PhoneUnit / PHONE enum / phone in name/type
+        const isPhone =
+          (item.phoneUnits && item.phoneUnits.length > 0) ||
+          rawCat === 'PHONE' ||
+          rawType === 'phone' ||
+          rawType.includes('smartphone') ||
+          catName.includes('phone') ||
+          catName.includes('smartphone');
+
+        // 2. Display / Spare Part Category
+        const isDisplay =
+          !isPhone &&
+          (rawCat === 'SPARE_PART' ||
+            rawCat === 'DISPLAY' ||
+            rawType.includes('display') ||
+            rawType.includes('spare') ||
+            rawType.includes('screen') ||
+            catName.includes('display') ||
+            catName.includes('screen') ||
+            catName.includes('spare'));
+
+        // 3. Gadget / Accessory Category
+        const isGadget =
+          !isPhone &&
+          !isDisplay &&
+          (rawCat === 'ACCESSORY' ||
+            rawCat === 'GADGET' ||
+            rawType.includes('gadget') ||
+            rawType.includes('accessory') ||
+            catName.includes('gadget') ||
+            catName.includes('accessory'));
+
+        // Calculate COGS using historical buying prices at intake
+        let itemCOGS = 0;
+        if (isPhone && item.phoneUnits && item.phoneUnits.length > 0) {
+          itemCOGS = item.phoneUnits.reduce((sum, pu) => {
+            const buyingCost =
+              Number(pu.buyingPrice) ||
+              Number(item.variant?.buyingPrice) ||
+              Number(p?.buyingPrice) ||
+              Number(p?.costPrice) ||
+              0;
+            return sum + buyingCost;
+          }, 0);
+        } else {
+          const unitBuyingCost =
+            Number(item.variant?.buyingPrice) ||
+            Number(p?.buyingPrice) ||
+            Number(p?.costPrice) ||
+            0;
+          itemCOGS = unitBuyingCost * Number(item.quantity || 1);
+        }
+
+        if (isPhone) {
+          totalPhoneSales += netLineTotal;
+          totalPhoneCOGS += itemCOGS;
+        } else if (isGadget) {
+          totalGadgetSales += netLineTotal;
+          totalGadgetCOGS += itemCOGS;
+        } else {
+          // Defaults to Display / Spare Part for any spare-part products
+          totalDisplaySales += netLineTotal;
+          totalDisplayCOGS += itemCOGS;
+        }
+      }
+    }
+
+    // Round categorized sales
+    totalPhoneSales = Math.round(totalPhoneSales * 100) / 100;
+    totalDisplaySales = Math.round(totalDisplaySales * 100) / 100;
+    totalGadgetSales = Math.round(totalGadgetSales * 100) / 100;
+
+    // ============================= 2. SERVICES REVENUE =============================
+    const completedServiceJobs = serviceJobs.filter(
+      (j) =>
+        (j.status as string) === 'DELIVERED' ||
+        (j.status as string) === 'COMPLETED',
+    );
+
+    const totalServices = completedServiceJobs.reduce((sum, j) => {
+      const revenue = Number(j.finalAmount) || Number(j.totalBill) || Number(j.serviceCharge) || 0;
+      return sum + revenue;
+    }, 0);
+
+    const serviceMaterialCost = completedServiceJobs.reduce(
+      (sum, j) => sum + Number(j.materialCost || 0),
+      0,
+    );
+
+    // Headline Total Sales = sum of all 4 revenue streams
+    const totalSales = Math.round((totalPhoneSales + totalDisplaySales + totalGadgetSales + totalServices) * 100) / 100;
+
+    // ============================= 3. PROFIT CALCULATION =============================
+    const totalCOGS = totalPhoneCOGS + totalDisplayCOGS + totalGadgetCOGS;
+    const totalProfit = Math.round((totalSales - totalCOGS - serviceMaterialCost) * 100) / 100;
+
+    // ============================= 4. PURCHASES & SUPPLIER DUE =============================
+    const totalPurchase = purchaseOrders.reduce((sum, po) => sum + Number(po.grandTotal || 0), 0);
+
+    let totalSupplierDue = openSupplierPOs.reduce((sum, po) => sum + Number(po.dueAmount || 0), 0);
+    // If global (no branch filter) and POs don't cover non-PO supplier dues, reconcile with supplier ledger
+    if (!branchId) {
+      const supplierDueAggregate = await this.prisma.supplier.aggregate({
+        _sum: { totalDue: true },
+      });
+      const ledgerTotalDue = Number(supplierDueAggregate._sum.totalDue || 0);
+      if (ledgerTotalDue > totalSupplierDue) {
+        totalSupplierDue = ledgerTotalDue;
+      }
+    }
+
+    // ============================= 5. OPERATIONAL / LEGACY KPIS =============================
+    const netProductSales = totalPhoneSales + totalDisplaySales + totalGadgetSales;
+    const netServiceRevenue = totalServices;
+    const totalRevenue = totalSales;
+
+    const liquidSales =
+      completedProductOrders.reduce((sum, o) => sum + Number(o.paidAmount || 0), 0) +
+      completedServiceJobs.reduce((sum, j) => sum + (Number(j.paidAmount) || Number(j.finalAmount) || 0), 0);
 
     const totalPaidExpense = expenses
       .filter((e) => e.status === ExpenseStatus.PAID)
@@ -2243,22 +2459,12 @@ export class ReportService {
       .reduce((sum, p) => sum + Number(p.netSalary), 0);
 
     const totalExpensePayroll = totalPaidExpense + totalPaidPayroll;
-
-    const totalPurchase = purchaseOrders.reduce((sum, po) => sum + Number(po.grandTotal), 0);
-
     const totalSupplierPayment = purchaseOrders.reduce((sum, po) => sum + Number(po.amountPaid), 0);
-
-    const totalSupplierDue = purchaseOrders.reduce((sum, po) => sum + Number(po.dueAmount), 0);
-
-    const totalDueSales = allOrders
-      .filter((o) => o.status !== OrderStatus.CANCELLED && o.status !== OrderStatus.RETURNED)
-      .reduce((sum, o) => sum + Number(o.dueAmount || 0), 0);
-
+    const totalDueSales = completedProductOrders.reduce((sum, o) => sum + Number(o.dueAmount || 0), 0);
     const totalExpense = expenses.reduce((sum, e) => sum + Number(e.amount), 0);
-
     const payrollSalary = payrolls.reduce((sum, p) => sum + Number(p.netSalary), 0);
 
-    // Order status breakdown
+    // ============================= 6. ORDER STATUS BREAKDOWN =============================
     const orderStatusCounts = {
       pending: allOrders.filter((o) => o.status === OrderStatus.PENDING).length,
       confirmed: allOrders.filter((o) => o.status === OrderStatus.CONFIRMED).length,
@@ -2266,8 +2472,12 @@ export class ReportService {
       delivered: allOrders.filter((o) => o.status === OrderStatus.DELIVERED).length,
       returned: allOrders.filter((o) => o.status === OrderStatus.RETURNED).length,
       cancelled: allOrders.filter((o) => o.status === OrderStatus.CANCELLED).length,
-      diagnosing: serviceJobs.filter((j) => ['PENDING', 'IN_PROGRESS', 'DIAGNOSING'].includes(j.status as string)).length,
-      completed: allOrders.filter((o) => o.status === OrderStatus.COMPLETED).length + serviceJobs.filter((j) => (j.status as string) === 'DELIVERED').length,
+      diagnosing:
+        allOrders.filter((o) => o.status === OrderStatus.DIAGNOSING).length +
+        serviceJobs.filter((j) => ['PENDING', 'IN_PROGRESS', 'DIAGNOSING'].includes(j.status as string)).length,
+      completed:
+        allOrders.filter((o) => o.status === OrderStatus.COMPLETED).length +
+        serviceJobs.filter((j) => ['DELIVERED', 'COMPLETED', 'READY_FOR_PICKUP'].includes(j.status as string)).length,
     };
 
     // Chart Data (Last 7 Days)
@@ -2303,21 +2513,23 @@ export class ReportService {
       });
     }
 
-    // Top Products
+    // Top Selling Products
     const prodMap = new Map<string, { id: string; name: string; category: string; price: number; unitsSold: number; image: string | null }>();
-    for (const item of topOrderItems) {
-      const pid = item.productId;
-      if (!prodMap.has(pid)) {
-        prodMap.set(pid, {
-          id: pid,
-          name: item.productNameSnapshot || item.product?.name || 'Product',
-          category: item.product?.category?.name || 'Category',
-          price: Number(item.unitPrice),
-          unitsSold: 0,
-          image: item.product?.images?.[0]?.url || null,
-        });
+    for (const order of completedProductOrders) {
+      for (const item of order.items) {
+        const pid = item.productId;
+        if (!prodMap.has(pid)) {
+          prodMap.set(pid, {
+            id: pid,
+            name: item.productNameSnapshot || item.product?.name || 'Product',
+            category: item.product?.category?.name || 'Category',
+            price: Number(item.unitPrice),
+            unitsSold: 0,
+            image: item.product?.images?.[0]?.url || null,
+          });
+        }
+        prodMap.get(pid)!.unitsSold += item.quantity;
       }
-      prodMap.get(pid)!.unitsSold += item.quantity;
     }
     const topSellingProducts = Array.from(prodMap.values())
       .sort((a, b) => b.unitsSold - a.unitsSold)
@@ -2337,14 +2549,23 @@ export class ReportService {
 
     return {
       kpi: {
+        // 8 Core Fix Pass 24 Cards
+        totalSales,
+        totalPhoneSales,
+        totalDisplaySales,
+        totalGadgetSales,
+        totalServices,
+        totalProfit,
+        totalPurchase,
+        totalSupplierDue,
+
+        // Operational / Legacy Cards
         totalRevenue,
         netProductSales,
         netServiceRevenue,
         liquidSales,
         totalExpensePayroll,
-        totalPurchase,
         totalSupplierPayment,
-        totalSupplierDue,
         totalDueSales,
         totalExpense,
         payrollSalary,
@@ -2352,14 +2573,14 @@ export class ReportService {
       orderStatuses: orderStatusCounts,
       chartData,
       topProducts: topSellingProducts,
-      recentOrders: recentOrders.map((o) => ({
+      recentOrders: allOrders.slice(0, 5).map((o) => ({
         id: o.id,
         orderCode: o.orderCode,
         customerName: o.customer?.name || 'Customer',
         branchName: o.branch?.name || 'Global',
         totalAmount: Number(o.totalAmount),
         status: o.status,
-        createdAt: o.createdAt,
+        createdAt: o.createdAt.toISOString(),
       })),
       topCustomers: topCustomersList,
     };

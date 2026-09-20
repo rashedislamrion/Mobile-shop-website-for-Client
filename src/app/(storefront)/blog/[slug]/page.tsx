@@ -60,7 +60,7 @@ export default function BlogPostPage({ params }: { params: { slug: string } }) {
     );
   }
 
-  const authorName = typeof blog.author === "string" ? blog.author : blog.author?.name || "NovaMobile Team";
+  const authorName = typeof blog.author === "string" ? blog.author : blog.author?.name || "MobileHubBD Team";
   const coverImage = blog.coverImage || blog.featuredImage;
   const viewCount = blog.viewCount ?? blog.views ?? 0;
 

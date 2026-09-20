@@ -15,7 +15,7 @@ export const mockPages: CmsPage[] = [
     id: '1',
     title: 'About Us',
     slug: '/about-us',
-    content: '<p>Welcome to NovaMobile...</p>',
+    content: '<p>Welcome to mobilehubbd...</p>',
     status: 'Published',
     isSystem: true,
     updatedAt: '2024-05-10T10:00:00Z',

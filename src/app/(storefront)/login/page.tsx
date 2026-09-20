@@ -51,7 +51,7 @@ export default function LoginPage() {
     <div className="container mx-auto px-4 py-16 flex justify-center items-center min-h-[calc(100vh-200px)]">
       <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-primary tracking-tight mb-2">NovaMobile</h1>
+          <h1 className="text-3xl font-bold text-primary tracking-tight mb-2">MobileHubBD</h1>
           <p className="text-slate-500">Welcome back! Please login to your account.</p>
         </div>
 

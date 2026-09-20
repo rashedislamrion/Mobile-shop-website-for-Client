@@ -27,7 +27,7 @@ export default function BlogListingPage() {
       <div className="max-w-3xl mx-auto text-center mb-12">
         <h1 className="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight mb-4">Latest Tech News & Guides</h1>
         <p className="text-slate-600">
-          Stay updated with the latest mobile repair guides, industry news, and expert tips from the NovaMobile team.
+          Stay updated with the latest mobile repair guides, industry news, and expert tips from the mobilehubbd team.
         </p>
       </div>
 

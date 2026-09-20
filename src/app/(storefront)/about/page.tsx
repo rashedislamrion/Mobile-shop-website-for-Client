@@ -34,7 +34,7 @@ export default function AboutPage() {
   return (
     <div className="container mx-auto px-4 py-16 max-w-4xl space-y-8">
       <h1 className="text-3xl md:text-4xl font-bold text-slate-900 tracking-tight">
-        {pageData?.title || "About NovaMobile"}
+        {pageData?.title || "About mobilehubbd"}
       </h1>
 
       <div className="prose prose-slate max-w-none bg-white p-8 rounded-2xl shadow-sm border border-slate-100 space-y-6">
@@ -43,7 +43,7 @@ export default function AboutPage() {
         ) : (
           <>
             <p className="text-slate-600 leading-relaxed text-base">
-              NovaMobile is Bangladesh's premier e-commerce and retail destination for genuine mobile parts, accessories, and precision diagnosis services. Founded to solve the lack of authentic replacement displays and batteries in the local market, NovaMobile delivers lab-tested quality directly to technicians and individual smartphone users nationwide.
+              mobilehubbd is Bangladesh's premier e-commerce and retail destination for genuine mobile parts, accessories, and precision diagnosis services. Founded to solve the lack of authentic replacement displays and batteries in the local market, mobilehubbd delivers lab-tested quality directly to technicians and individual smartphone users nationwide.
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 not-prose my-6">

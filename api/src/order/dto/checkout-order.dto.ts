@@ -25,6 +25,11 @@ export class CheckoutOrderItemDto {
   @Min(1)
   @Type(() => Number)
   quantity: number;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  unitPrice?: number;
 }
 
 export class GuestInfoDto {
@@ -49,6 +54,36 @@ export class GuestInfoDto {
   city?: string;
 }
 
+export class ShippingAddressInputDto {
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsString()
+  @IsNotEmpty()
+  phone: string;
+
+  @IsString()
+  @IsOptional()
+  email?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  address: string;
+
+  @IsString()
+  @IsOptional()
+  city?: string;
+
+  @IsString()
+  @IsOptional()
+  postalCode?: string;
+
+  @IsString()
+  @IsOptional()
+  country?: string;
+}
+
 export class CheckoutOrderDto {
   @IsArray()
   @ValidateNested({ each: true })
@@ -65,6 +100,12 @@ export class CheckoutOrderDto {
   @Type(() => GuestInfoDto)
   guestInfo?: GuestInfoDto;
 
+  @IsObject()
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ShippingAddressInputDto)
+  shippingAddress?: ShippingAddressInputDto;
+
   @IsString()
   @IsOptional()
   promoCode?: string;
@@ -78,5 +119,18 @@ export class CheckoutOrderDto {
 
   @IsString()
   @IsOptional()
+  deliveryZone?: string;
+
+  @IsNumber()
+  @IsOptional()
+  @Type(() => Number)
+  deliveryCharge?: number;
+
+  @IsString()
+  @IsOptional()
   orderNotes?: string;
+
+  @IsString()
+  @IsOptional()
+  notes?: string;
 }

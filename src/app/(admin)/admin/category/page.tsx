@@ -690,7 +690,7 @@ export default function CategoryManagementPage() {
                   <div className="space-y-1.5">
                     <Label className="text-xs font-bold text-slate-700">Meta Title</Label>
                     <Input
-                      placeholder="e.g. Buy Authentic Smartphones Online — NovaMobile"
+                      placeholder="e.g. Buy Authentic Smartphones Online — mobilehubbd"
                       value={formMetaTitle}
                       onChange={(e) => setFormMetaTitle(e.target.value)}
                       className="bg-slate-50 border-slate-200 rounded-xl text-sm"

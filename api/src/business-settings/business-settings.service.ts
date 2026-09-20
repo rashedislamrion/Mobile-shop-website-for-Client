@@ -8,11 +8,11 @@ import {
 
 const defaultSettings = {
   general: {
-    companyName: 'NovaMobile Bangladesh',
-    websiteName: 'NovaMobile',
-    websiteTitle: 'NovaMobile - Smartphone Parts & Repair Shop',
-    email: 'contact@novamobile.com',
-    emailAddress: 'contact@novamobile.com',
+    companyName: 'mobilehubbd Bangladesh',
+    websiteName: 'mobilehubbd',
+    websiteTitle: 'mobilehubbd - Smartphone Parts & Repair Shop',
+    email: 'contact@mobilehubbd.com',
+    emailAddress: 'contact@mobilehubbd.com',
     phone: '+880 1700-000000',
     mobileNumber: '+880 1700-000000',
     address: 'Level 4, Bashundhara City Shopping Complex, Panthapath, Dhaka',
@@ -153,8 +153,8 @@ export class BusinessSettingsService {
     const currencyTax = settings.currencyTax as any;
 
     return {
-      companyName: general.companyName || 'NovaMobile Bangladesh',
-      companyEmail: general.emailAddress || general.email || 'contact@novamobile.com',
+      companyName: general.companyName || 'mobilehubbd Bangladesh',
+      companyEmail: general.emailAddress || general.email || 'contact@mobilehubbd.com',
       companyPhone: general.mobileNumber || general.phone || '+880 1700-000000',
       businessModel: general.businessModel || 'SINGLE_STORE',
       currencyPosition: general.currencyPosition || currencyTax.symbolPosition || 'LEFT',

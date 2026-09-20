@@ -41,7 +41,7 @@ export default function TermsPage() {
         ) : (
           <>
             <p className="text-slate-600 leading-relaxed mb-6">
-              Welcome to NovaMobile. By accessing and using our website, you agree to comply with and be bound by the following terms and conditions of use. Please review these terms carefully. If you do not agree to these terms, you should not use this site.
+              Welcome to mobilehubbd. By accessing and using our website, you agree to comply with and be bound by the following terms and conditions of use. Please review these terms carefully. If you do not agree to these terms, you should not use this site.
             </p>
             
             <h3 className="text-xl font-bold text-slate-800 mt-8 mb-4">1. Acceptance of Agreement</h3>
@@ -51,7 +51,7 @@ export default function TermsPage() {
             
             <h3 className="text-xl font-bold text-slate-800 mt-8 mb-4">2. Genuine Parts & Warranty</h3>
             <p className="text-slate-600 leading-relaxed mb-6">
-              All replacement parts, smartphone displays, and batteries sold through NovaMobile are tested for performance and guaranteed authentic. Return and warranty claims must be reported within the specified return window.
+              All replacement parts, smartphone displays, and batteries sold through mobilehubbd are tested for performance and guaranteed authentic. Return and warranty claims must be reported within the specified return window.
             </p>
           </>
         )}

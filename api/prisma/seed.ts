@@ -73,12 +73,12 @@ async function main() {
   const adminRole = createdRoles.find(r => r.name === 'Admin')!;
   const passwordHash = await bcrypt.hash('Admin@12345', 10);
   await prisma.staff.upsert({
-    where: { email: 'admin@novamobile.test' },
+    where: { email: 'admin@mobilehubbd.test' },
     update: { passwordHash, roleId: adminRole.id },
     create: {
       employeeId: 'EMP-0001',
       name: 'Super Admin',
-      email: 'admin@novamobile.test',
+      email: 'admin@mobilehubbd.test',
       phone: '+8801700000000',
       passwordHash,
       roleId: adminRole.id,
@@ -115,7 +115,7 @@ async function main() {
   if (!existingSettings) {
     await prisma.businessSetting.create({
       data: {
-        general: { storeName: 'Nova Mobile', email: 'contact@novamobile.com' },
+        general: { storeName: 'mobilehubbd', email: 'contact@mobilehubbd.com' },
         branding: { primaryColor: '#000000' },
         currencyTax: { currency: 'BDT' },
         orderSettings: { minOrder: 100 },

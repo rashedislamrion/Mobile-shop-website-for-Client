@@ -12,10 +12,10 @@ export interface FooterSettings {
 export const mockFooterSettings: FooterSettings = {
   support: {
     phoneNumber: '+880 1234 567890',
-    email: 'support@novamobile.com',
+    email: 'support@mobilehubbd.com',
     liveChatLink: 'https://wa.me/8801234567890',
     faqLink: '/faq',
   },
   visibleBranches: ['1', '2', '3'], // Assuming these IDs correspond to mock branches
-  copyrightText: '© {year} All Rights Reserved By NovaMobile.',
+  copyrightText: '© {year} All Rights Reserved By mobilehubbd.',
 };

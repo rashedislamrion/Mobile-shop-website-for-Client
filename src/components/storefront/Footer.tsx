@@ -137,7 +137,7 @@ export function Footer() {
           {/* Brand Info */}
           <div className="lg:col-span-2 space-y-4">
             <Link href="/" className="text-2xl font-extrabold text-white tracking-tight">
-              NovaMobile
+              MobileHubBD
             </Link>
             <p className="text-sm text-slate-400 max-w-sm">
               Bangladesh's leading platform for genuine smartphone displays, batteries, accessories, and professional repair services.
@@ -154,7 +154,7 @@ export function Footer() {
               </div>
               <div className="flex items-center gap-3 text-sm">
                 <Mail className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                <span>{footerSettings?.supportEmail || "support@novamobile.com"}</span>
+                <span>{footerSettings?.supportEmail || "support@mobilehubbd.com"}</span>
               </div>
               {supportContactItem?.extraData?.availableTime && (
                 <div className="flex items-center gap-3 text-xs text-slate-400">
@@ -286,7 +286,7 @@ export function Footer() {
       {/* Copyright Strip */}
       <div className="border-t border-slate-800 py-6 bg-slate-950">
         <div className="container mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-400">
-          <p>{footerSettings?.copyrightText || "© 2026 NovaMobile Ltd. All rights reserved."}</p>
+          <p>{footerSettings?.copyrightText || "© 2026 mobilehubbd Ltd. All rights reserved."}</p>
           <div className="flex items-center gap-6">
             <Link href="/terms" className="hover:text-emerald-400">Terms</Link>
             <Link href="/privacy" className="hover:text-emerald-400">Privacy</Link>

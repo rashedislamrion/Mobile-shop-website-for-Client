@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -27,6 +28,8 @@ const ALLOWED_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
 
 @Injectable()
 export class OrderService {
+  private readonly logger = new Logger(OrderService.name);
+
   constructor(private prisma: PrismaService) {}
 
   private async checkBranchScope(user: JwtPayload, targetBranchId?: string) {
@@ -722,12 +725,27 @@ export class OrderService {
 
     let customerId: string | null = null;
     let shippingAddressId: string | null = dto.shippingAddressId || null;
+    const addressSource = dto.shippingAddress || dto.guestInfo;
 
     if (user?.userType === 'CUSTOMER') {
       customerId = user.sub;
-    } else if (dto.guestInfo) {
-      const guestPhone = dto.guestInfo.phone.trim();
-      const guestEmail = dto.guestInfo.email?.trim() || `${guestPhone}@guest.novamobile.com`;
+      if (!shippingAddressId && addressSource) {
+        const addr = await this.prisma.address.create({
+          data: {
+            customerId,
+            fullName: addressSource.name.trim(),
+            phone: addressSource.phone.trim(),
+            email: addressSource.email?.trim() || null,
+            fullAddress: addressSource.address.trim(),
+            tag: 'HOME',
+            isDefault: false,
+          },
+        });
+        shippingAddressId = addr.id;
+      }
+    } else if (addressSource) {
+      const guestPhone = addressSource.phone.trim();
+      const guestEmail = addressSource.email?.trim() || `${guestPhone}@guest.mobilehubbd.com`;
 
       let customer = await this.prisma.customer.findFirst({
         where: {
@@ -738,7 +756,7 @@ export class OrderService {
       if (!customer) {
         customer = await this.prisma.customer.create({
           data: {
-            name: dto.guestInfo.name.trim(),
+            name: addressSource.name.trim(),
             phone: guestPhone,
             email: guestEmail,
             passwordHash: 'GUEST_ACCOUNT',
@@ -751,10 +769,10 @@ export class OrderService {
         const addr = await this.prisma.address.create({
           data: {
             customerId: customer.id,
-            fullName: dto.guestInfo.name.trim(),
+            fullName: addressSource.name.trim(),
             phone: guestPhone,
-            email: dto.guestInfo.email || null,
-            fullAddress: dto.guestInfo.address,
+            email: addressSource.email?.trim() || null,
+            fullAddress: addressSource.address.trim(),
             tag: 'HOME',
             isDefault: false,
           },
@@ -762,7 +780,7 @@ export class OrderService {
         shippingAddressId = addr.id;
       }
     } else if (!user) {
-      throw new BadRequestException('Please login or provide guest contact information.');
+      throw new BadRequestException('Please login or provide delivery contact information.');
     }
 
     const branch = await this.prisma.branch.findFirst({
@@ -810,7 +828,19 @@ export class OrderService {
           });
         }
 
-        const unitPrice = Number(variant.price || product.regularPrice);
+        const realUnitPrice = Number(variant.price || product.regularPrice);
+
+        // Security / Trust Boundary: NEVER trust client-supplied unitPrice
+        if (item.unitPrice !== undefined && item.unitPrice !== null) {
+          const sentPrice = Number(item.unitPrice);
+          if (Math.abs(sentPrice - realUnitPrice) > 0.01) {
+            throw new BadRequestException(
+              `Price for "${product.name}" has changed (cart: ৳${sentPrice}, current: ৳${realUnitPrice}). Please refresh your cart.`,
+            );
+          }
+        }
+
+        const unitPrice = realUnitPrice;
         const lineTotal = unitPrice * item.quantity;
         subtotal += lineTotal;
 
@@ -859,19 +889,52 @@ export class OrderService {
         }
       }
 
-      let deliveryCharge = 60;
-      if (dto.deliveryType === 'EXPRESS') {
-        deliveryCharge = 120;
+      // Security / Trust Boundary: Recompute delivery charge independently server-side
+      const totalOrderQuantity = dto.items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
+      let calculatedDeliveryCharge = 60; // Baseline default
+
+      // Query real DeliveryChargeTier records from database (Fix Pass 17)
+      const matchingTier = await tx.deliveryChargeTier.findFirst({
+        where: {
+          minOrderQty: { lte: totalOrderQuantity },
+          maxOrderQty: { gte: totalOrderQuantity },
+        },
+        orderBy: { minOrderQty: 'asc' },
+      });
+
+      if (matchingTier) {
+        calculatedDeliveryCharge = Number(matchingTier.charge);
       }
+
+      // Zone or Express adjustment
+      if (dto.deliveryType === 'EXPRESS' || dto.deliveryZone === 'OUTSIDE_DHAKA') {
+        calculatedDeliveryCharge = Math.max(calculatedDeliveryCharge, 120);
+      }
+
+      // Free shipping on qualifying orders
       if (subtotal >= 5000) {
-        deliveryCharge = 0;
+        calculatedDeliveryCharge = 0;
       }
+
+      // Validate client-sent delivery charge if supplied
+      if (dto.deliveryCharge !== undefined && dto.deliveryCharge !== null) {
+        const clientCharge = Number(dto.deliveryCharge);
+        if (Math.abs(clientCharge - calculatedDeliveryCharge) > 0.01) {
+          this.logger.warn(
+            `[Checkout Trust Boundary] Client supplied deliveryCharge (৳${clientCharge}) does not match server-computed charge (৳${calculatedDeliveryCharge}). Overriding with server-computed value.`,
+          );
+        }
+      }
+
+      const deliveryCharge = calculatedDeliveryCharge;
 
       const totalAmount = Math.max(0, subtotal - discountAmount + deliveryCharge);
       const paidAmount = 0;
       const dueAmount = totalAmount;
       const paymentStatus = PaymentStatus.PENDING;
       const initialStatus = OrderStatus.PENDING;
+
+      const effectiveNotes = (dto.orderNotes || dto.notes || '').trim();
 
       const order = await tx.order.create({
         data: {
@@ -895,7 +958,7 @@ export class OrderService {
           statusHistory: {
             create: {
               status: initialStatus,
-              note: `Website checkout via ${dto.paymentMethod}${dto.orderNotes ? ` (${dto.orderNotes})` : ''}`,
+              note: `Website checkout via ${dto.paymentMethod}${effectiveNotes ? ` (${effectiveNotes})` : ''}`,
             },
           },
         },
@@ -907,6 +970,7 @@ export class OrderService {
       });
 
       return {
+        id: order.id,
         orderId: order.id,
         orderCode: order.orderCode,
         totalAmount: Number(order.totalAmount),

@@ -45,7 +45,7 @@ export function PosInvoiceModal({
   const isDiagnosing = order.status === "DIAGNOSING" || order.saleType === "DIAGNOSING";
   const isCourier = order.saleType === "COURIER";
 
-  const shopName = shopSettings?.companyName || shopSettings?.shopName || order.branch?.name || "Nova Mobile";
+  const shopName = shopSettings?.companyName || shopSettings?.shopName || order.branch?.name || "mobilehubbd";
   const shopAddress = shopSettings?.address || shopSettings?.companyAddress || order.branch?.address || "Mobile Retail & Service Center";
   const shopPhone = shopSettings?.phone || shopSettings?.companyPhone || order.branch?.phone || "+880 1700-000000";
 

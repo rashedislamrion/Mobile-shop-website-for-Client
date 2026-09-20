@@ -11,11 +11,41 @@ export declare class AuthService {
     private jwtService;
     private configService;
     constructor(prisma: PrismaService, jwtService: JwtService, configService: ConfigService);
+    private failedAttempts;
+    private checkFailedAttempts;
+    private recordFailedAttempt;
+    private clearFailedAttempts;
     registerCustomer(dto: RegisterCustomerDto): Promise<{
+        user: {
+            id: string;
+            name: string;
+            email: string | null;
+            phone: string;
+            userType: string;
+        };
+        customer: {
+            id: string;
+            name: string;
+            email: string | null;
+            phone: string;
+        };
         accessToken: string;
         refreshToken: string;
     }>;
     loginCustomer(dto: LoginDto): Promise<{
+        user: {
+            id: string;
+            name: string;
+            email: string | null;
+            phone: string;
+            userType: string;
+        };
+        customer: {
+            id: string;
+            name: string;
+            email: string | null;
+            phone: string;
+        };
         accessToken: string;
         refreshToken: string;
     }>;

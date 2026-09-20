@@ -33,7 +33,7 @@ export default function AdminLoginPage() {
   } = useForm<AdminLoginFormValues>({
     resolver: zodResolver(adminLoginSchema),
     defaultValues: {
-      identifier: "admin@novamobile.test",
+      identifier: "",
       password: "",
       roleHint: "auto",
     },
@@ -70,7 +70,7 @@ export default function AdminLoginPage() {
           <div className="inline-flex p-3 bg-primary/20 text-primary rounded-xl mb-3">
             <ShieldCheck className="w-8 h-8" />
           </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">NovaMobile ERP</h1>
+          <h1 className="text-2xl font-bold text-white tracking-tight">MobileHubBD ERP</h1>
           <p className="text-slate-400 text-sm mt-1">Unified Staff & Management Access Portal</p>
         </div>
 
@@ -85,9 +85,6 @@ export default function AdminLoginPage() {
               {...register("roleHint")}
               onChange={(e) => {
                 setValue("roleHint", e.target.value);
-                if (e.target.value === "admin") {
-                  setValue("identifier", "admin@novamobile.test");
-                }
               }}
               className="w-full h-10 px-3 rounded-xl bg-slate-900/60 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-primary"
             >
@@ -110,7 +107,7 @@ export default function AdminLoginPage() {
             <Input
               id="identifier"
               type="text"
-              placeholder="admin@novamobile.test or 017xxxxxxxx"
+              placeholder="staff@mobilehubbd.com or 017xxxxxxxx"
               className="bg-slate-900/50 border-slate-700 text-white placeholder:text-slate-500 focus-visible:ring-primary h-10 text-sm"
               {...register("identifier")}
             />
@@ -144,10 +141,6 @@ export default function AdminLoginPage() {
             {isSubmitting ? "Authenticating..." : "Sign In to ERP Portal"}
           </Button>
         </form>
-
-        <div className="mt-6 text-center text-xs text-slate-400 border-t border-slate-700/60 pt-4">
-          Demo Admin: <code className="text-primary font-mono">admin@novamobile.test / Admin@12345</code>
-        </div>
       </div>
     </div>
   );

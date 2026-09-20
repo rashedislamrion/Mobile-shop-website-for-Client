@@ -96,7 +96,7 @@ export function Header() {
             </SheetTrigger>
             <SheetContent side="left" className="w-[300px] p-0">
               <SheetHeader className="p-4 border-b text-left">
-                <SheetTitle className="text-primary font-bold text-xl">NovaMobile</SheetTitle>
+                <SheetTitle className="text-primary font-bold text-xl">MobileHubBD</SheetTitle>
               </SheetHeader>
               <div className="p-4 flex flex-col gap-4">
                 <Accordion type="single" collapsible className="w-full">
@@ -128,12 +128,12 @@ export function Header() {
               </div>
             </SheetContent>
           </Sheet>
-          <Link href="/" className="text-2xl font-bold text-primary tracking-tight">NovaMobile</Link>
+          <Link href="/" className="text-2xl font-bold text-primary tracking-tight">MobileHubBD</Link>
         </div>
 
         {/* Desktop Logo */}
         <div className="hidden lg:flex items-center">
-          <Link href="/" className="text-3xl font-bold text-primary tracking-tight">NovaMobile</Link>
+          <Link href="/" className="text-3xl font-bold text-primary tracking-tight">MobileHubBD</Link>
         </div>
 
         {/* Search Bar */}

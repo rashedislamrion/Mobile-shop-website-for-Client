@@ -19,8 +19,8 @@ export default function BusinessSetupPage() {
   const [isSaving, setIsSaving] = useState(false);
 
   const [form, setForm] = useState({
-    companyName: "NovaMobile Bangladesh",
-    companyEmail: "contact@novamobile.com",
+    companyName: "mobilehubbd Bangladesh",
+    companyEmail: "contact@mobilehubbd.com",
     companyPhone: "+880 1700-000000",
     businessModel: "SINGLE_STORE",
     currencyPosition: "LEFT",
@@ -107,7 +107,7 @@ export default function BusinessSetupPage() {
               <Input
                 value={form.companyName}
                 onChange={(e) => setForm({ ...form, companyName: e.target.value })}
-                placeholder="e.g. NovaMobile Bangladesh"
+                placeholder="e.g. mobilehubbd Bangladesh"
                 className="h-10 text-sm"
               />
             </div>

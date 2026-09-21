@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { 
@@ -96,7 +97,9 @@ export function Header() {
             </SheetTrigger>
             <SheetContent side="left" className="w-[300px] p-0">
               <SheetHeader className="p-4 border-b text-left">
-                <SheetTitle className="text-primary font-bold text-xl">MobileHubBD</SheetTitle>
+                <SheetTitle>
+                  <Image src="/images/logo-full.jpeg" alt="MobileHubBD" width={200} height={40} className="w-auto h-8" />
+                </SheetTitle>
               </SheetHeader>
               <div className="p-4 flex flex-col gap-4">
                 <Accordion type="single" collapsible className="w-full">
@@ -128,12 +131,16 @@ export function Header() {
               </div>
             </SheetContent>
           </Sheet>
-          <Link href="/" className="text-2xl font-bold text-primary tracking-tight">MobileHubBD</Link>
+          <Link href="/" className="flex items-center">
+            <Image src="/images/logo-full.jpeg" alt="MobileHubBD" width={200} height={40} className="w-auto h-8 sm:h-10" />
+          </Link>
         </div>
 
         {/* Desktop Logo */}
         <div className="hidden lg:flex items-center">
-          <Link href="/" className="text-3xl font-bold text-primary tracking-tight">MobileHubBD</Link>
+          <Link href="/" className="flex items-center">
+            <Image src="/images/logo-full.jpeg" alt="MobileHubBD" width={240} height={48} className="w-auto h-12" />
+          </Link>
         </div>
 
         {/* Search Bar */}

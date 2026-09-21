@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import Image from "next/image";
 import { useState } from "react";
 import { 
   Building2,
@@ -195,16 +196,16 @@ export function AdminSidebar() {
       <div className="h-16 flex items-center justify-between px-4 border-b border-slate-200 flex-shrink-0">
         {!isSidebarCollapsed && (
           <div className="flex items-center gap-2 overflow-hidden">
-            <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center flex-shrink-0">
-              <Building2 className="w-5 h-5" />
+            <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-white">
+              <Image src="/images/logo-icon.jpeg" alt="Logo" width={32} height={32} className="rounded-full" />
             </div>
             <span className="font-bold text-slate-800 whitespace-nowrap text-lg">MobileHubBD ERP</span>
           </div>
         )}
         {isSidebarCollapsed && (
           <div className="w-full flex justify-center">
-            <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center">
-              <Building2 className="w-5 h-5" />
+            <div className="w-8 h-8 rounded-full flex items-center justify-center bg-white">
+              <Image src="/images/logo-icon.jpeg" alt="Logo" width={32} height={32} className="rounded-full" />
             </div>
           </div>
         )}

@@ -11,9 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-const mockAddresses = [
-  { id: 1, name: "John Doe", phone: "01711223344", address: "House 12, Road 5, Block C, Banani", city: "Dhaka", zip: "1213", tag: "Home", isDefault: true },
-];
+const mockAddresses: any[] = [];
 
 const addressSchema = z.object({
   fullName: z.string().min(2, "Name is required"),

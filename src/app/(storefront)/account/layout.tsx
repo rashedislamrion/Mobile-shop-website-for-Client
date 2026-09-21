@@ -1,8 +1,8 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { 
   LayoutDashboard, 
   ShoppingBag, 
@@ -16,6 +16,7 @@ import {
   Menu
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { getCustomerToken } from "@/lib/api-client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Sheet,
@@ -41,8 +42,17 @@ const LEGAL_ITEMS = [
 
 export default function AccountLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { user, customerName } = useAuth();
+  const router = useRouter();
+  const { user, customerName, isAuthenticated } = useAuth();
   const displayName = user?.name || customerName || "Customer";
+
+  // Auth guard: redirect to login if not authenticated
+  useEffect(() => {
+    const token = getCustomerToken();
+    if (!token && !isAuthenticated) {
+      router.replace("/login");
+    }
+  }, [isAuthenticated, router]);
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">

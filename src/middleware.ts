@@ -50,9 +50,7 @@ export function middleware(request: NextRequest) {
     const hasCustomerAuth = request.cookies.has('customer_authenticated');
 
     if (!hasCustomerRefresh && !hasCustomerAuth) {
-      const response = NextResponse.next();
-      response.headers.set('x-auth-check', 'required');
-      return response;
+      return NextResponse.redirect(new URL('/login?redirect=' + pathname, request.url));
     }
   }
 

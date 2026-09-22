@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { 
   Building2,
   ChevronDown,
@@ -29,9 +29,19 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 
 function NavItemComponent({ item, isCollapsed, level = 0 }: { item: NavItem, isCollapsed: boolean, level?: number }) {
   const pathname = usePathname();
-  const isActive = item.href ? (pathname === item.href || pathname.startsWith(`${item.href}/`)) : false;
-  const isParentActive = item.children?.some(child => pathname === child.href || pathname.startsWith(`${child.href}/`));
+  const isActive = item.href
+    ? (item.href === "/admin" ? pathname === "/admin" : (pathname === item.href || pathname.startsWith(`${item.href}/`)))
+    : false;
+  const isParentActive = item.children?.some(child =>
+    child.href ? (child.href === "/admin" ? pathname === "/admin" : (pathname === child.href || pathname.startsWith(`${child.href}/`))) : false
+  );
   const [isOpen, setIsOpen] = useState(isParentActive);
+
+  useEffect(() => {
+    if (isParentActive) {
+      setIsOpen(true);
+    }
+  }, [isParentActive]);
 
   if (item.children) {
     return (

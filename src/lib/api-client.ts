@@ -4,6 +4,10 @@ export const API_BASE_URL =
 export const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
 
+if (typeof window !== 'undefined') {
+  console.log(`[MobileHubBD Client Init] API Base URL: ${API_BASE_URL}`);
+}
+
 export const CUSTOMER_TOKEN_KEY = 'novamobile_customer_token';
 export const STAFF_TOKEN_KEY = 'novamobile_staff_token';
 

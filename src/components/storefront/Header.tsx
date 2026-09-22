@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import { 
   Search, Heart, ShoppingCart, ChevronDown, Menu, LayoutGrid, 
@@ -54,6 +54,7 @@ const categoryIconMap: Record<string, JSX.Element> = {
 
 export function Header() {
   const router = useRouter();
+  const pathname = usePathname();
   const [searchQuery, setSearchQuery] = useState("");
   const [isMegaMenuOpen, setIsMegaMenuOpen] = useState(false);
   const [categories, setCategories] = useState<any[]>([]);
@@ -118,15 +119,42 @@ export function Header() {
                   </AccordionItem>
                 </Accordion>
                 <div className="flex flex-col gap-3 mt-2 text-sm font-semibold text-slate-700">
-                  <Link href="/category/all" className="hover:text-primary py-1">All Products</Link>
-                  <Link href="/phones" className="hover:text-primary py-1 flex items-center gap-2 font-bold text-emerald-600">
+                  <Link
+                    href="/category/all"
+                    className={`py-1 transition-colors ${pathname === "/category/all" ? "text-emerald-600 font-bold" : "hover:text-primary text-slate-700"}`}
+                  >
+                    All Products
+                  </Link>
+                  <Link
+                    href="/phones"
+                    className={`py-1 flex items-center gap-2 transition-colors ${pathname === "/phones" || pathname.startsWith("/phones/") ? "text-emerald-600 font-bold" : "hover:text-primary text-slate-700"}`}
+                  >
                     <Smartphone className="w-4 h-4" /> Phones
                   </Link>
-                  {headerMenus.map((m) => (
-                    <Link key={m.id} href={m.linkValue} className="hover:text-primary py-1">{m.label}</Link>
-                  ))}
-                  <Link href="/blog" className="hover:text-primary py-1">Blogs</Link>
-                  <Link href="/contact" className="hover:text-primary py-1">Contact Us</Link>
+                  {headerMenus.map((m) => {
+                    const isActive = pathname === m.linkValue;
+                    return (
+                      <Link
+                        key={m.id}
+                        href={m.linkValue}
+                        className={`py-1 transition-colors ${isActive ? "text-emerald-600 font-bold" : "hover:text-primary text-slate-700"}`}
+                      >
+                        {m.label}
+                      </Link>
+                    );
+                  })}
+                  <Link
+                    href="/blog"
+                    className={`py-1 transition-colors ${pathname === "/blog" || pathname.startsWith("/blog/") ? "text-emerald-600 font-bold" : "hover:text-primary text-slate-700"}`}
+                  >
+                    Blogs
+                  </Link>
+                  <Link
+                    href="/contact"
+                    className={`py-1 transition-colors ${pathname === "/contact" ? "text-emerald-600 font-bold" : "hover:text-primary text-slate-700"}`}
+                  >
+                    Contact Us
+                  </Link>
                 </div>
               </div>
             </SheetContent>
@@ -228,7 +256,14 @@ export function Header() {
             onMouseEnter={() => setIsMegaMenuOpen(true)}
             onMouseLeave={() => setIsMegaMenuOpen(false)}
           >
-            <Button variant="ghost" className="h-9 px-4 rounded-full bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800 flex items-center gap-2 font-semibold">
+            <Button
+              variant="ghost"
+              className={`h-9 px-4 rounded-full flex items-center gap-2 font-semibold transition-colors ${
+                (pathname.startsWith("/category/") && pathname !== "/category/all") || isMegaMenuOpen
+                  ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                  : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800"
+              }`}
+            >
               <LayoutGrid className="w-4 h-4" />
               Categories
             </Button>
@@ -237,43 +272,115 @@ export function Header() {
             {isMegaMenuOpen && categories.length > 0 && (
               <div className="absolute top-[48px] left-4 w-[800px] bg-white border rounded-xl shadow-lg p-6 z-50 animate-in fade-in duration-200">
                 <div className="grid grid-cols-4 gap-4">
-                  {categories.map((cat) => (
-                    <Link key={cat.id} href={`/category/${cat.slug}`} className="flex items-center gap-3 group p-3 hover:bg-slate-50 rounded-xl transition-colors border border-transparent hover:border-slate-100">
-                      <div className="w-10 h-10 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center group-hover:bg-primary group-hover:text-white transition-colors overflow-hidden">
-                        {cat.image ? (
-                          <img src={getImageUrl(cat.image)} alt={cat.name} className="w-6 h-6 object-contain" />
-                        ) : (
-                          categoryIconMap[cat.name] || <LayoutGrid className="w-5 h-5"/>
-                        )}
-                      </div>
-                      <span className="text-sm font-medium text-slate-700 group-hover:text-primary transition-colors truncate">{cat.name}</span>
-                    </Link>
-                  ))}
+                  {categories.map((cat) => {
+                    const isCatActive = pathname === `/category/${cat.slug}`;
+                    return (
+                      <Link
+                        key={cat.id}
+                        href={`/category/${cat.slug}`}
+                        className={`flex items-center gap-3 group p-3 rounded-xl transition-colors border ${
+                          isCatActive
+                            ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                            : "hover:bg-slate-50 border-transparent hover:border-slate-100"
+                        }`}
+                      >
+                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors overflow-hidden ${
+                          isCatActive ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-500 group-hover:bg-primary group-hover:text-white"
+                        }`}>
+                          {cat.image ? (
+                            <img src={getImageUrl(cat.image)} alt={cat.name} className="w-6 h-6 object-contain" />
+                          ) : (
+                            categoryIconMap[cat.name] || <LayoutGrid className="w-5 h-5"/>
+                          )}
+                        </div>
+                        <span className={`text-sm font-medium transition-colors truncate ${
+                          isCatActive ? "text-emerald-800 font-bold" : "text-slate-700 group-hover:text-primary"
+                        }`}>{cat.name}</span>
+                      </Link>
+                    );
+                  })}
                 </div>
               </div>
             )}
           </div>
 
-          <nav className="flex items-center gap-8 text-sm font-semibold text-slate-600">
-            <Link href="/category/all" className="hover:text-primary transition-colors">All Products</Link>
-            <Link href="/phones" className="hover:text-primary transition-colors flex items-center gap-1.5 font-bold text-emerald-600">
+          <nav className="flex items-center gap-8 text-sm font-semibold">
+            <Link
+              href="/category/all"
+              className={`transition-colors py-1 ${
+                pathname === "/category/all"
+                  ? "text-emerald-600 font-bold border-b-2 border-emerald-600"
+                  : "text-slate-600 hover:text-primary"
+              }`}
+            >
+              All Products
+            </Link>
+            <Link
+              href="/phones"
+              className={`transition-colors flex items-center gap-1.5 py-1 ${
+                pathname === "/phones" || pathname.startsWith("/phones/")
+                  ? "text-emerald-600 font-bold border-b-2 border-emerald-600"
+                  : "text-slate-600 hover:text-primary"
+              }`}
+            >
               <Smartphone className="w-4 h-4" /> Phones
             </Link>
             {headerMenus.length > 0 ? (
-              headerMenus.map((m) => (
-                <Link key={m.id} href={m.linkValue} target={m.openInNewTab ? "_blank" : undefined} className="hover:text-primary transition-colors">
-                  {m.label}
-                </Link>
-              ))
+              headerMenus.map((m) => {
+                const isActive = pathname === m.linkValue;
+                return (
+                  <Link
+                    key={m.id}
+                    href={m.linkValue}
+                    target={m.openInNewTab ? "_blank" : undefined}
+                    className={`transition-colors py-1 ${
+                      isActive
+                        ? "text-emerald-600 font-bold border-b-2 border-emerald-600"
+                        : "text-slate-600 hover:text-primary"
+                    }`}
+                  >
+                    {m.label}
+                  </Link>
+                );
+              })
             ) : (
-              categories.slice(0, 4).map((c) => (
-                <Link key={c.id} href={`/category/${c.slug}`} className="hover:text-primary transition-colors">
-                  {c.name}
-                </Link>
-              ))
+              categories.slice(0, 4).map((c) => {
+                const isActive = pathname === `/category/${c.slug}`;
+                return (
+                  <Link
+                    key={c.id}
+                    href={`/category/${c.slug}`}
+                    className={`transition-colors py-1 ${
+                      isActive
+                        ? "text-emerald-600 font-bold border-b-2 border-emerald-600"
+                        : "text-slate-600 hover:text-primary"
+                    }`}
+                  >
+                    {c.name}
+                  </Link>
+                );
+              })
             )}
-            <Link href="/blog" className="hover:text-primary transition-colors">Blogs</Link>
-            <Link href="/contact" className="hover:text-primary transition-colors">Contact</Link>
+            <Link
+              href="/blog"
+              className={`transition-colors py-1 ${
+                pathname === "/blog" || pathname.startsWith("/blog/")
+                  ? "text-emerald-600 font-bold border-b-2 border-emerald-600"
+                  : "text-slate-600 hover:text-primary"
+              }`}
+            >
+              Blogs
+            </Link>
+            <Link
+              href="/contact"
+              className={`transition-colors py-1 ${
+                pathname === "/contact"
+                  ? "text-emerald-600 font-bold border-b-2 border-emerald-600"
+                  : "text-slate-600 hover:text-primary"
+              }`}
+            >
+              Contact
+            </Link>
           </nav>
         </div>
       </div>

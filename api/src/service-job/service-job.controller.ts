@@ -6,6 +6,7 @@ import {
   Body,
   Param,
   Query,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ServiceJobService } from './service-job.service';
 import { CreateServiceJobDto, AssignTechnicianDto, CreateRepairJobDto } from './dto/create-service-job.dto';
@@ -28,6 +29,7 @@ export class ServiceJobController {
   @RequirePermission({ module: ModuleName.SALES, action: PermissionAction.READ })
   @Get()
   findAll(
+    @CurrentUser() user: JwtPayload,
     @Query('status') status?: ServiceJobStatus,
     @Query('branch') branch?: string,
     @Query('technicianId') technicianId?: string,
@@ -35,10 +37,12 @@ export class ServiceJobController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
+    const isTech = user.roleName?.toLowerCase().includes('technician');
+    const effectiveTechId = isTech ? user.sub : technicianId;
     return this.serviceJobService.findAll({
       status,
       branch,
-      technicianId,
+      technicianId: effectiveTechId,
       search,
       page,
       limit,
@@ -64,8 +68,13 @@ export class ServiceJobController {
 
   @RequirePermission({ module: ModuleName.SALES, action: PermissionAction.READ })
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.serviceJobService.findOne(id);
+  async findOne(@Param('id') id: string, @CurrentUser() user: JwtPayload) {
+    const job = await this.serviceJobService.findOne(id);
+    const isTech = user.roleName?.toLowerCase().includes('technician');
+    if (isTech && job?.technicianId && job.technicianId !== user.sub) {
+      throw new ForbiddenException('Access denied: You can only view your own service jobs');
+    }
+    return job;
   }
 
   @RequirePermission({ module: ModuleName.SALES, action: PermissionAction.UPDATE })

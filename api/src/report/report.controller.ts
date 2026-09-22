@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, UseGuards, ForbiddenException } from '@nestjs/common';
 import { ReportService } from './report.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
@@ -138,6 +138,7 @@ export class ReportController {
   @Get('service-sales')
   @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
   getServiceSalesReport(
+    @CurrentUser() user: JwtPayload,
     @Query('branch') branch?: string,
     @Query('status') status?: string,
     @Query('technicianId') technicianId?: string,
@@ -145,6 +146,10 @@ export class ReportController {
     @Query('dateTo') dateTo?: string,
     @Query('search') search?: string,
   ) {
+    const isTech = user.roleName?.toLowerCase().includes('technician');
+    if (isTech) {
+      throw new ForbiddenException('Access denied: Technicians can only view their own individual servicing reports');
+    }
     return this.reportService.getServiceSalesReport({
       branch,
       status,
@@ -158,12 +163,17 @@ export class ReportController {
   @Get('service-global')
   @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
   getGlobalServiceReport(
+    @CurrentUser() user: JwtPayload,
     @Query('branch') branch?: string,
     @Query('technicianId') technicianId?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
     @Query('search') search?: string,
   ) {
+    const isTech = user.roleName?.toLowerCase().includes('technician');
+    if (isTech) {
+      throw new ForbiddenException('Access denied: Technicians can only view their own individual servicing reports');
+    }
     return this.reportService.getGlobalServiceReport({
       branch,
       technicianId,
@@ -181,7 +191,9 @@ export class ReportController {
     @Query('dateTo') dateTo?: string,
     @Query('search') search?: string,
   ) {
-    const effectiveTechId = technicianId || user.sub;
+    const isTech = user.roleName?.toLowerCase().includes('technician');
+    // If caller is a technician, strictly bind to their own user.sub, ignoring client-supplied technicianId
+    const effectiveTechId = isTech ? user.sub : (technicianId || user.sub);
     return this.reportService.getServicingTechnicianReport(effectiveTechId, {
       dateFrom,
       dateTo,
@@ -192,10 +204,15 @@ export class ReportController {
   @Get('technician-performance')
   @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
   getTechnicianPerformanceReport(
+    @CurrentUser() user: JwtPayload,
     @Query('branch') branch?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
   ) {
+    const isTech = user.roleName?.toLowerCase().includes('technician');
+    if (isTech) {
+      throw new ForbiddenException('Access denied: Technicians can only view their own individual servicing reports');
+    }
     return this.reportService.getTechnicianPerformanceReport({
       branch,
       dateFrom,
@@ -206,10 +223,15 @@ export class ReportController {
   @Get('technician-profit')
   @RequirePermission({ module: ModuleName.REPORT, action: PermissionAction.READ })
   getTechnicianProfitReport(
+    @CurrentUser() user: JwtPayload,
     @Query('branch') branch?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
   ) {
+    const isTech = user.roleName?.toLowerCase().includes('technician');
+    if (isTech) {
+      throw new ForbiddenException('Access denied: Technicians can only view their own individual servicing reports');
+    }
     return this.reportService.getTechnicianProfitReport({
       branch,
       dateFrom,

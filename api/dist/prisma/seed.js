@@ -69,11 +69,11 @@ async function main() {
                     allowed = true;
                 }
                 else if (role.name === 'Salesperson') {
-                    if (['SALES', 'ORDERS', 'CUSTOMERS'].includes(module))
+                    if (['SALES', 'ORDERS', 'CUSTOMERS', 'PRODUCTS'].includes(module) && action !== 'DELETE')
                         allowed = true;
                 }
                 else if (role.name === 'Technician') {
-                    if (module === 'SALES' && (action === 'READ' || action === 'UPDATE'))
+                    if ((module === 'SALES' && (action === 'READ' || action === 'UPDATE')) || (module === 'REPORT' && action === 'READ'))
                         allowed = true;
                 }
                 else if (role.name === 'SEO') {
@@ -106,6 +106,9 @@ async function main() {
         }
     }
     const adminRole = createdRoles.find(r => r.name === 'Admin');
+    const branchAdminRole = createdRoles.find(r => r.name === 'Branch Admin');
+    const technicianRole = createdRoles.find(r => r.name === 'Technician');
+    const salespersonRole = createdRoles.find(r => r.name === 'Salesperson');
     const passwordHash = await bcrypt.hash('Admin@12345', 10);
     await prisma.staff.upsert({
         where: { email: 'admin@mobilehubbd.test' },
@@ -126,14 +129,63 @@ async function main() {
         { name: 'Sylhet Warehouse', code: 'BR-SYL', type: 'WAREHOUSE', address: 'Zindabazar', city: 'Sylhet', phone: '01733333333' },
     ];
     let branchCount = 0;
+    let dhakaBranchId = '';
     for (const b of branches) {
-        await prisma.branch.upsert({
+        const createdBranch = await prisma.branch.upsert({
             where: { code: b.code },
             update: {},
             create: b,
         });
+        if (b.code === 'BR-DHK')
+            dhakaBranchId = createdBranch.id;
         branchCount++;
     }
+    const branchAdminHash = await bcrypt.hash('Branch@12345', 10);
+    await prisma.staff.upsert({
+        where: { email: 'demo.branchadmin@mobilehubbd.test' },
+        update: { passwordHash: branchAdminHash, roleId: branchAdminRole.id, branchId: dhakaBranchId },
+        create: {
+            employeeId: 'DEMO-BADM-01',
+            name: 'Dhaka Branch Admin',
+            email: 'demo.branchadmin@mobilehubbd.test',
+            phone: '+8801700000001',
+            passwordHash: branchAdminHash,
+            roleId: branchAdminRole.id,
+            branchId: dhakaBranchId,
+            status: client_1.StaffStatus.ACTIVE,
+        }
+    });
+    const techHash = await bcrypt.hash('Tech@12345', 10);
+    await prisma.staff.upsert({
+        where: { email: 'demo.technician@mobilehubbd.test' },
+        update: { passwordHash: techHash, roleId: technicianRole.id, branchId: dhakaBranchId, profitSharePercentage: 50 },
+        create: {
+            employeeId: 'DEMO-TECH-01',
+            name: 'Senior Technician',
+            email: 'demo.technician@mobilehubbd.test',
+            phone: '+8801700000002',
+            passwordHash: techHash,
+            roleId: technicianRole.id,
+            branchId: dhakaBranchId,
+            profitSharePercentage: 50,
+            status: client_1.StaffStatus.ACTIVE,
+        }
+    });
+    const salesHash = await bcrypt.hash('Sales@12345', 10);
+    await prisma.staff.upsert({
+        where: { email: 'sales@mobilehubbd.test' },
+        update: { passwordHash: salesHash, roleId: salespersonRole.id, branchId: dhakaBranchId },
+        create: {
+            employeeId: 'DEMO-SALES-01',
+            name: 'Counter Sales Staff',
+            email: 'sales@mobilehubbd.test',
+            phone: '+8801700000003',
+            passwordHash: salesHash,
+            roleId: salespersonRole.id,
+            branchId: dhakaBranchId,
+            status: client_1.StaffStatus.ACTIVE,
+        }
+    });
     await prisma.country.upsert({
         where: { name: 'Bangladesh' },
         update: {},

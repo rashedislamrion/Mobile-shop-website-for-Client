@@ -997,12 +997,13 @@ export class ReportService {
 
     // Initialize all technicians so zero-service staff also appear if relevant
     allTechnicians.forEach((t) => {
+      const rawRate = Number(t.profitSharePercentage ?? t.commissionRate ?? 0);
       techMap.set(t.id, {
         technicianId: t.id,
         technicianName: t.name,
         phone: t.phone,
         branchName: t.branch?.name || 'Dhaka Main',
-        profitShareRate: Number(t.profitSharePercentage ?? t.commissionRate ?? 0),
+        profitShareRate: rawRate > 0 ? rawRate : 50,
         servicesCount: 0,
         collection: 0,
         materialCost: 0,
@@ -1017,12 +1018,13 @@ export class ReportService {
     jobs.forEach((j) => {
       const techId = j.technicianId || 'unassigned';
       if (!techMap.has(techId)) {
+        const rawRate = Number(j.technician?.profitSharePercentage ?? j.technician?.commissionRate ?? 0);
         techMap.set(techId, {
           technicianId: techId,
           technicianName: j.technician?.name || 'Unassigned Staff',
           phone: j.technician?.phone || 'N/A',
           branchName: j.order?.branch?.name || 'Main',
-          profitShareRate: Number(j.technician?.profitSharePercentage ?? j.technician?.commissionRate ?? 0),
+          profitShareRate: rawRate > 0 ? rawRate : 50,
           servicesCount: 0,
           collection: 0,
           materialCost: 0,
@@ -1168,13 +1170,14 @@ export class ReportService {
       };
     });
 
+    const rawRate = Number(technician.profitSharePercentage ?? technician.commissionRate ?? 0);
     return {
       technician: {
         id: technician.id,
         name: technician.name,
         branch: technician.branch?.name || 'Main Branch',
         phone: technician.phone,
-        profitShareRate: Number(technician.profitSharePercentage ?? technician.commissionRate ?? 0),
+        profitShareRate: rawRate > 0 ? rawRate : 50,
       },
       dateRange: {
         from: query?.dateFrom || 'All Time',

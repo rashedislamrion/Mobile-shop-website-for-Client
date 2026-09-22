@@ -227,8 +227,9 @@ export class ServiceJobService {
       if (dto.technicianId) {
         const technician = await tx.staff.findUnique({ where: { id: dto.technicianId } });
         if (technician) {
-          const rate = Number(technician.profitSharePercentage ?? technician.commissionRate ?? 0);
-          // Profit share = profitSharePercentage * (finalAmount - materialCost)
+          const rawRate = Number(technician.profitSharePercentage ?? technician.commissionRate ?? 0);
+          const rate = rawRate > 0 ? rawRate : 50;
+          // Profit share = 50% (or configured rate) * (finalAmount - materialCost)
           const laborProfit = Math.max(0, finalAmount - materialCost);
           technicianProfitShare = (laborProfit * rate) / 100;
         }
@@ -390,7 +391,8 @@ export class ServiceJobService {
     if (dto.technicianId) {
       const technician = await this.prisma.staff.findUnique({ where: { id: dto.technicianId } });
       if (technician) {
-        const rate = Number(technician.profitSharePercentage ?? technician.commissionRate ?? 0);
+        const rawRate = Number(technician.profitSharePercentage ?? technician.commissionRate ?? 0);
+        const rate = rawRate > 0 ? rawRate : 50;
         const laborProfit = Math.max(0, Number(job.finalAmount) - Number(job.materialCost));
         technicianProfitShare = (laborProfit * rate) / 100;
       }

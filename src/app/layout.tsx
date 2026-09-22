@@ -26,6 +26,11 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const resolvedApiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000/api/v1";
+  if (typeof window === "undefined") {
+    console.log(`[MobileHubBD Server Startup] API URL resolved: ${resolvedApiUrl}`);
+  }
+
   return (
     <html lang="en">
       <body
